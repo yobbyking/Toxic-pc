@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import admin from '@/lib/firebase-admin';
 import { z } from 'zod';
 
 const ResetSchema = z.object({
@@ -38,10 +37,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Update the password in Firebase Auth via Admin SDK
-    try {
-      admin.auth().updateUser(user.firebaseUid, { password: newPassword });
-    } catch (err) {
-      console.error('[reset-password] Firebase update failed:', err.message || err);
+    const { updateUserPassword } = await import('@/lib/firebase-admin');
+    const updated = await updateUserPassword(user.firebaseUid, newPassword);
+    if (!updated) {
       return NextResponse.json({ error: 'Failed to update password (Firebase). Try again.' }, { status: 502 });
     }
 
