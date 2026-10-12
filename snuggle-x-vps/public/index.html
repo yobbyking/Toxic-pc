@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Snuggle X · Admin</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #0a0a14;
+  --card: rgba(255,255,255,0.04);
+  --border: rgba(255,255,255,0.08);
+  --pink: #FF5C8A;
+  --purple: #C44FE8;
+  --gold: #FFB938;
+  --green: #4ADE80;
+  --red: #F87171;
+  --text: #E8E8F0;
+  --muted: #8A8A9A;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+}
+body::before {
+  content: "";
+  position: fixed; inset: 0; z-index: -1;
+  background:
+    radial-gradient(ellipse 800px 600px at 0% 0%, rgba(255,92,138,0.15), transparent 60%),
+    radial-gradient(ellipse 800px 600px at 100% 100%, rgba(196,79,232,0.15), transparent 60%);
+}
+.login-wrap {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.login-card {
+  max-width: 380px;
+  width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 36px 28px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+.login-card h1 {
+  font-size: 24px;
+  text-align: center;
+  background: linear-gradient(135deg, #fff, #FFB9E1);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 4px;
+}
+.login-card .sub {
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 24px;
+}
+.login-card .logo {
+  text-align: center;
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+.input {
+  width: 100%;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--text);
+  font-size: 14px;
+  margin-bottom: 12px;
+  outline: none;
+  transition: all 0.2s;
+}
+.input:focus {
+  border-color: var(--pink);
+  background: rgba(255,92,138,0.05);
+}
+.btn {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--pink), var(--purple));
+  color: #fff;
+  transition: all 0.2s;
+  letter-spacing: 0.3px;
+}
+.btn:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(255,92,138,0.3); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn.secondary {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.dash {
+  display: none;
+  min-height: 100vh;
+}
+.topbar {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 24px;
+  position: sticky; top: 0; z-index: 100;
+  backdrop-filter: blur(20px);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.topbar .logo {
+  font-weight: 700; font-size: 18px;
+  background: linear-gradient(135deg, var(--pink), var(--purple));
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.topbar .actions { display: flex; gap: 10px; }
+.topbar .stats { display: flex; gap: 16px; font-size: 12px; color: var(--muted); }
+.topbar .stats span { color: var(--pink); font-weight: 600; }
+.content {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 20px;
+  margin-bottom: 20px;
+  backdrop-filter: blur(10px);
+}
+.section h2 {
+  font-size: 16px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section h2 .badge {
+  background: var(--pink);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+textarea {
+  width: 100%;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  padding: 12px;
+  outline: none;
+  resize: vertical;
+  min-height: 80px;
+  margin-bottom: 12px;
+}
+.bot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+.bot-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  transition: all 0.2s;
+}
+.bot-card:hover {
+  border-color: var(--pink);
+  transform: translateY(-2px);
+}
+.bot-card .row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.bot-card .name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.bot-card .num {
+  font-size: 11px;
+  color: var(--muted);
+}
+.bot-card .status {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.bot-card .status.online { background: rgba(74,222,128,0.15); color: var(--green); }
+.bot-card .status.offline { background: rgba(248,113,113,0.15); color: var(--red); }
+.bot-card .actions {
+  display: flex; gap: 6px;
+  margin-top: 10px;
+}
+.bot-card .actions button {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.bot-card .actions button.stop {
+  background: rgba(248,113,113,0.15);
+  color: var(--red);
+  border-color: rgba(248,113,113,0.3);
+}
+.empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted);
+}
+.empty .icon { font-size: 60px; margin-bottom: 10px; }
+.toast {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 20px;
+  font-size: 13px;
+  z-index: 200;
+  backdrop-filter: blur(20px);
+  display: none;
+}
+.toast.show { display: block; animation: slideup 0.3s ease; }
+@keyframes slideup { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+</style>
+</head>
+<body>
+
+<div class="login-wrap" id="loginWrap">
+  <div class="login-card">
+    <div class="logo">💕</div>
+    <h1>Snuggle X Admin</h1>
+    <p class="sub">Bot deployment panel</p>
+    <input type="password" class="input" id="password" placeholder="Admin password" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="btn" id="loginBtn" onclick="doLogin()">Login</button>
+  </div>
+</div>
+
+<div class="dash" id="dash">
+  <div class="topbar">
+    <div class="logo">💕 Snuggle X Admin</div>
+    <div class="stats" id="stats"></div>
+    <div class="actions">
+      <button class="btn secondary" style="width:auto; padding:8px 16px;" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="section">
+      <h2>🚀 Deploy New Bot <span class="badge">Paste session ID</span></h2>
+      <textarea id="sessionInput" placeholder="yobbyx:~..."></textarea>
+      <button class="btn" id="deployBtn" onclick="deployBot()">Deploy Bot</button>
+    </div>
+
+    <div class="section">
+      <h2>🤖 Running Bots <span class="badge" id="botCount">0</span></h2>
+      <div class="bot-grid" id="botGrid">
+        <div class="empty"><div class="icon">🤖</div><p>No bots deployed yet</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let token = localStorage.getItem('snuggle-x-token');
+if (token) showDash();
+
+async function doLogin() {
+  const password = document.getElementById('password').value;
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    alert('Login failed: ' + (data.error || 'wrong password'));
+    return;
+  }
+  token = data.token;
+  localStorage.setItem('snuggle-x-token', token);
+  showDash();
+}
+
+function logout() {
+  localStorage.removeItem('snuggle-x-token');
+  token = null;
+  document.getElementById('dash').style.display = 'none';
+  document.getElementById('loginWrap').style.display = 'flex';
+}
+
+function showDash() {
+  document.getElementById('loginWrap').style.display = 'none';
+  document.getElementById('dash').style.display = 'block';
+  loadBots();
+  setInterval(loadBots, 10000);
+}
+
+async function loadBots() {
+  if (!token) return;
+  const res = await fetch('/api/bots', { headers: { 'x-admin-token': token } });
+  if (res.status === 401) { logout(); return; }
+  const data = await res.json();
+  const grid = document.getElementById('botGrid');
+  const bots = data.bots || [];
+  document.getElementById('botCount').textContent = bots.length;
+  document.getElementById('stats').innerHTML = `
+    <div>Bots: <span>${bots.length}</span></div>
+    <div>Online: <span style="color:#4ADE80">${bots.filter(b => b.pid).length}</span></div>
+  `;
+  if (bots.length === 0) {
+    grid.innerHTML = '<div class="empty"><div class="icon">🤖</div><p>No bots deployed yet</p></div>';
+    return;
+  }
+  grid.innerHTML = bots.map(b => `
+    <div class="bot-card">
+      <div class="row">
+        <div>
+          <div class="name">${b.label || b.ownerNumber}</div>
+          <div class="num">📱 ${b.ownerNumber}</div>
+        </div>
+        <div class="status ${b.pid ? 'online' : 'offline'}">${b.pid ? '● Online' : '● Offline'}</div>
+      </div>
+      <div class="num">Started: ${new Date(b.startedAt).toLocaleString()}</div>
+      <div class="num">PID: ${b.pid || '—'}</div>
+      <div class="actions">
+        <button onclick="stopBot('${b.id}')">Stop</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function deployBot() {
+  const sessionId = document.getElementById('sessionInput').value.trim();
+  if (!sessionId) return alert('Paste a session ID');
+  if (!sessionId.startsWith('yobbyx:~')) return alert('Session ID must start with yobbyx:~');
+  const btn = document.getElementById('deployBtn');
+  btn.disabled = true;
+  btn.textContent = 'Deploying...';
+  try {
+    const res = await fetch('/api/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+      body: JSON.stringify({ sessionId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Deploy failed');
+    toast('✅ Bot deployed for ' + data.ownerNumber);
+    document.getElementById('sessionInput').value = '';
+    loadBots();
+  } catch (e) {
+    alert('Deploy failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Deploy Bot';
+  }
+}
+
+async function stopBot(id) {
+  if (!confirm('Stop this bot?')) return;
+  await fetch('/api/stop/' + id, { method: 'POST', headers: { 'x-admin-token': token } });
+  toast('Bot stopped');
+  loadBots();
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>

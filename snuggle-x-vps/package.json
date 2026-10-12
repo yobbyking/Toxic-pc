@@ -1,0 +1,17 @@
+{
+  "name": "snuggle-x-vps",
+  "version": "1.0.0",
+  "description": "Snuggle X admin dashboard + bot runner",
+  "main": "dashboard.js",
+  "scripts": {
+    "start": "node dashboard.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.7",
+    "express": "^4.19.2",
+    "pino": "^9.4.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
