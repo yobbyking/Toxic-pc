@@ -119,11 +119,17 @@ async function start() {
 
       const sender = m.key.remoteJid;
       // Skip newsletters and broadcasts
-      if (sender && (sender.includes('newsletter') || sender.includes('broadcast') || sender.endsWith('@lid'))) {
+      if (sender && (sender.includes('newsletter') || sender.includes('broadcast'))) {
         return;
       }
 
-      const senderNumber = sender.split(':')[0].split('@')[0];
+      // Determine if this is a group chat
+      const isGroup = sender && sender.endsWith('@g.us');
+      // For group chats, the actual sender is in m.key.participant
+      // For DMs, the sender is the remoteJid
+      const senderJid = isGroup ? m.key.participant : sender;
+      if (!senderJid) return;
+      const senderNumber = senderJid.split(':')[0].split('@')[0];
       const pushName = m.pushName || 'User';
       const isOwner = senderNumber === ownerNumber;
       const mode = getMode();
@@ -142,9 +148,10 @@ async function start() {
       const raw = text.trim();
       if (!raw) return;
       const cmd = raw.toLowerCase().split(/\s+/)[0];
-      console.log(`[CMD] ${senderNumber} (${pushName}): ${raw}`);
+      const ctx = isGroup ? `group ${sender.split('@')[0]} from ${senderNumber}` : `dm ${senderNumber}`;
+      console.log(`[CMD] ${ctx} (${pushName}): ${raw}`);
 
-      // === PUBLIC commands (work for everyone) ===
+      // === PUBLIC commands (work for everyone, in DMs and groups) ===
       if (cmd === '.menu' || cmd === '.m' || cmd === '!menu' || cmd === '/menu') {
         await sendMenu(sender, m, pushName);
         return;
