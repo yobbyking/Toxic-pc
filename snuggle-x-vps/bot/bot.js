@@ -74,6 +74,21 @@ async function start() {
 
   sock.ev.on('creds.update', saveCreds);
 
+  // === Listen to ALL events for debugging ===
+  sock.ev.on('messages.received', async ({ messages }) => {
+    console.log(`[RECV] ${messages.length} messages received`);
+    for (const m of messages) {
+      console.log(`[RECV] from=${m.key.remoteJid} fromMe=${m.key.fromMe} id=${m.key.id}`);
+    }
+  });
+
+  // Listen for ANY message event (debug)
+  sock.ev.on('message-receipt.update', (updates) => {
+    for (const u of updates) {
+      console.log(`[RECEIPT] ${u.key.remoteJid} fromMe=${u.key.fromMe} receipt=${u.receipt?.status || '?'}`);
+    }
+  });
+
   let isStarting = true;
   sock.ev.on('connection.update', async (update) => {
     if (update.connection === 'open') {
@@ -163,16 +178,20 @@ async function start() {
 
       const raw = text.trim();
       if (!raw) return;
-      const cmd = raw.toLowerCase().split(/\s+/)[0];
+      const lower = raw.toLowerCase();
       const ctx = isGroup ? `group ${sender.split('@')[0]} from ${senderNumber}` : `dm ${senderNumber}`;
       console.log(`[CMD] ${ctx} (${pushName}): ${raw}`);
 
       // === PUBLIC commands (work for everyone, in DMs and groups) ===
-      if (cmd === '.menu' || cmd === '.m' || cmd === '!menu' || cmd === '/menu') {
+      // Use .startsWith() but also handle messages that start with markdown formatting (e.g. *.menu*)
+      const strippedRaw = raw.replace(/^[*_`~]+/, '').trim(); // Strip leading markdown
+      const cmd = strippedRaw.toLowerCase().split(/\s+/)[0];
+      console.log(`  → parsed cmd: "${cmd}" from raw: "${raw.slice(0, 50)}"`);
+      if (cmd === '.menu' || cmd === '.m' || cmd === '!menu' || cmd === '/menu' || lower === 'menu') {
         await sendMenu(sender, m, pushName);
         return;
       }
-      if (cmd === '.all' || cmd === '!all' || cmd === '/all') {
+      if (cmd === '.all' || cmd === '!all' || cmd === '/all' || lower === 'all') {
         await sendAllMenu(sender, m);
         return;
       }
