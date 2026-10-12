@@ -115,13 +115,20 @@ async function start() {
   sock.ev.on('messages.upsert', async ({ messages }) => {
     try {
       const m = messages[0];
-      if (!m || !m.message || m.key.fromMe) return;
+      if (!m || !m.message) return;
 
       const sender = m.key.remoteJid;
       // Skip newsletters and broadcasts
       if (sender && (sender.includes('newsletter') || sender.includes('broadcast'))) {
         return;
       }
+
+      // === Allow "Message yourself" (fromMe=true) when sent from the owner's own chat ===
+      // When you message yourself in WhatsApp, the message has fromMe=true because
+      // it's sent from your account (which is the same account the bot is linked to).
+      // We need to process these so .menu etc. work when testing alone.
+      const isSelfChat = sender && sender.split('@')[0] === ownerNumber && sender.endsWith('@s.whatsapp.net');
+      if (m.key.fromMe && !isSelfChat) return;
 
       // Determine if this is a group chat
       const isGroup = sender && sender.endsWith('@g.us');
@@ -130,8 +137,8 @@ async function start() {
       const senderJid = isGroup ? m.key.participant : sender;
       if (!senderJid) return;
       const senderNumber = senderJid.split(':')[0].split('@')[0];
-      const pushName = m.pushName || 'User';
-      const isOwner = senderNumber === ownerNumber;
+      const pushName = m.pushName || (isSelfChat ? 'You' : 'User');
+      const isOwner = senderNumber === ownerNumber || isSelfChat;
       const mode = getMode();
 
       // Extract text from any message type

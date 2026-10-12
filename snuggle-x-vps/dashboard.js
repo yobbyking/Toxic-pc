@@ -139,6 +139,44 @@ app.get('/api/bot/:botId/status', auth, (req, res) => {
   });
 });
 
+// === Bot logs ===
+app.get('/api/bot/:botId/logs', auth, (req, res) => {
+  const bot = bots.get(req.params.botId);
+  if (!bot) return res.status(404).json({ error: 'Bot not found' });
+  const lines = parseInt(req.query.lines) || 100;
+  // Read the pm2 log file directly
+  const logFile = `/root/.pm2/logs/${bot.pm2Name}-out.log`;
+  exec(`tail -n ${lines} "${logFile}" 2>&1`, (err, stdout) => {
+    res.json({ logs: stdout || '' });
+  });
+});
+
+// === All bot logs (combined) — for the logs panel ===
+app.get('/api/logs', auth, (req, res) => {
+  const lines = parseInt(req.query.lines) || 200;
+  // Get logs from all snuggle-x-bot-* processes
+  exec(`tail -n ${lines} /root/.pm2/logs/snuggle-x-bot-*-out.log 2>&1 | tail -n ${lines}`, (err, stdout) => {
+    const logs = (stdout || '').split('\n').filter(l => l.trim()).map(line => {
+      // Try to extract timestamp + level
+      let level = 'info';
+      if (line.includes('[CMD]')) level = 'cmd';
+      else if (line.includes('Connected')) level = 'success';
+      else if (line.includes('ERROR') || line.includes('failed')) level = 'error';
+      else if (line.includes('Snuggle X Bot')) level = 'system';
+      return { t: new Date().toISOString(), level, msg: line };
+    });
+    res.json({ logs });
+  });
+});
+
+// === Live logs stream (for the panel — last N lines + keep polling) ===
+app.get('/api/logs/raw', auth, (req, res) => {
+  const lines = parseInt(req.query.lines) || 100;
+  exec(`tail -n ${lines} /root/.pm2/logs/snuggle-x-bot-*-out.log 2>&1 | tail -n ${lines}`, (err, stdout) => {
+    res.type('text/plain').send(stdout || '');
+  });
+});
+
 function getBotPid(pm2Name) {
   try {
     const out = execSync(`pm2 jlist 2>/dev/null`, { encoding: 'utf-8' });

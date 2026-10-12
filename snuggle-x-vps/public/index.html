@@ -279,6 +279,13 @@ textarea {
         <div class="empty"><div class="icon">🤖</div><p>No bots deployed yet</p></div>
       </div>
     </div>
+
+    <div class="section">
+      <h2>📋 Live Bot Logs <span class="badge" id="logCount">0</span> <button class="btn secondary" style="width:auto; padding:6px 12px; font-size:11px; margin-left:auto;" id="refreshLogs" onclick="loadLogs()">Refresh</button></h2>
+      <div id="logsBox" style="background: rgba(0,0,0,0.6); border: 1px solid var(--border); border-radius: 14px; padding: 14px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; line-height: 1.6; max-height: 400px; overflow-y: auto; color: var(--muted);">
+        <div style="text-align:center; padding: 20px; color: var(--muted);">Loading logs...</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -316,7 +323,40 @@ function showDash() {
   document.getElementById('loginWrap').style.display = 'none';
   document.getElementById('dash').style.display = 'block';
   loadBots();
+  loadLogs();
   setInterval(loadBots, 10000);
+  setInterval(loadLogs, 5000); // Refresh logs every 5 seconds
+}
+
+async function loadLogs() {
+  if (!token) return;
+  try {
+    const res = await fetch('/api/logs/raw?lines=200', { headers: { 'x-admin-token': token } });
+    if (!res.ok) return;
+    const text = await res.text();
+    const box = document.getElementById('logsBox');
+    if (!text || !text.trim()) {
+      box.innerHTML = '<div style="text-align:center; padding: 20px;">No logs yet</div>';
+      document.getElementById('logCount').textContent = '0';
+      return;
+    }
+    const lines = text.split('\n').filter(l => l.trim());
+    document.getElementById('logCount').textContent = lines.length;
+    // Color-code lines based on content
+    const colored = lines.map(line => {
+      let color = '#A7F3D0';
+      let bg = '';
+      if (line.includes('[CMD]')) { color = '#22D3EE'; }
+      else if (line.includes('Connected')) { color = '#10B981'; }
+      else if (line.includes('ERROR') || line.includes('failed')) { color = '#F87171'; }
+      else if (line.includes('Snuggle X Bot')) { color = '#A78BFA'; }
+      else if (line.includes('PONG') || line.includes('LIVE')) { color = '#FBBF24'; }
+      return `<div style="color: ${color}; padding: 2px 0; ${bg}">${line.replace(/</g, '&lt;')}</div>`;
+    }).join('');
+    box.innerHTML = colored;
+    // Auto-scroll to bottom
+    box.scrollTop = box.scrollHeight;
+  } catch (e) { console.error('loadLogs error:', e); }
 }
 
 async function loadBots() {
