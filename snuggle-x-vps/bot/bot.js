@@ -135,7 +135,7 @@ async function start() {
       const sender = m.key.remoteJid;
       // === DEBUG: Log every incoming message so we can see what's arriving ===
       const textPreview = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || '(no text)';
-      console.log(`[MSG] from=${sender} fromMe=${m.key.fromMe} participant=${m.key.participant || '-'} type=${Object.keys(m.message)[0]} text="${String(textPreview).slice(0, 80)}"`);
+      console.log(`[MSG] from=${sender} fromMe=${m.key.fromMe} participant=${m.key.participant || '-'} participantPn=${m.key.participantPn || '-'} type=${Object.keys(m.message)[0]} text="${String(textPreview).slice(0, 80)}"`);
 
       // Skip newsletters and broadcasts (but allow @lid — that's DMs in the new privacy format)
       if (sender && (sender.includes('newsletter') || sender.includes('broadcast'))) {
@@ -157,11 +157,23 @@ async function start() {
       const isGroup = sender && sender.endsWith('@g.us');
       // For group chats, the actual sender is in m.key.participant
       // For DMs, the sender is the remoteJid
-      const senderJid = isGroup ? m.key.participant : sender;
-      if (!senderJid) return;
-      const senderNumber = senderJid.split(':')[0].split('@')[0];
+      // === NEW: Handle LID privacy in groups using participantPn ===
+      // In groups, participant may be <lid>@lid format. Baileys provides participantPn
+      // which is the phone number <phone>@s.whatsapp.net. We use that to identify the owner.
+      let senderJid = isGroup ? m.key.participant : sender;
+      let senderNumber = senderJid ? senderJid.split(':')[0].split('@')[0] : '';
+      // If sender is LID and we have participantPn, use the phone number from participantPn
+      if (isGroup && senderJid && senderJid.endsWith('@lid') && m.key.participantPn) {
+        senderNumber = m.key.participantPn.split(':')[0].split('@')[0];
+      }
+      // For DMs with LID, also check if there's a way to get the phone number
+      if (!isGroup && isLid && m.key.participantPn) {
+        senderNumber = m.key.participantPn.split(':')[0].split('@')[0];
+      }
+      if (!senderJid && !senderNumber) return;
       const pushName = m.pushName || (isSelfChat ? 'You' : 'User');
-      // For LID messages from self, treat as owner
+      // Owner can be identified in any context (DM, group, another friend's phone)
+      // The owner is whoever deployed this bot — they have the phone number stored in ownerNumber
       const isOwner = senderNumber === ownerNumber || isSelfChat || (isLid && m.key.fromMe);
       const mode = getMode();
 
@@ -180,7 +192,7 @@ async function start() {
       if (!raw) return;
       const lower = raw.toLowerCase();
       const ctx = isGroup ? `group ${sender.split('@')[0]} from ${senderNumber}` : `dm ${senderNumber}`;
-      console.log(`[CMD] ${ctx} (${pushName}): ${raw}`);
+      console.log(`[CMD] ${ctx} (${pushName})${isOwner ? ' [OWNER]' : ''}: ${raw}`);
 
       // === PUBLIC commands (work for everyone, in DMs and groups) ===
       // Use .startsWith() but also handle messages that start with markdown formatting (e.g. *.menu*)
