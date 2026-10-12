@@ -108,9 +108,25 @@ async function start() {
     }
     if (update.connection === 'close') {
       const code = update.lastDisconnect?.error?.output?.statusCode;
-      console.log('[Snuggle X Bot] closed:', code);
-      if (code !== DisconnectReason.loggedOut) {
-        setTimeout(() => start(), 3000);
+      const errMsg = update.lastDisconnect?.error?.message || 'unknown';
+      console.log(`[Snuggle X Bot] closed: code=${code} (${errMsg})`);
+      if (code === DisconnectReason.loggedOut) {
+        // Session is invalidated on WhatsApp's side — don't retry, exit
+        console.error('[Snuggle X Bot] ❌ Session logged out. The session ID is no longer valid. Re-pair with the pairing portal.');
+        // Send a notification to the owner before exiting (if still possible)
+        try {
+          await sock.sendMessage(ownerJid, { text: '❌ *Session expired.* Please re-pair your WhatsApp on the Snuggle X pairing portal to get a fresh session ID.' });
+        } catch {}
+        // Exit the process — pm2 will restart it but it'll fail again, that's expected
+        // To prevent infinite restart loops, sleep then exit
+        setTimeout(() => process.exit(1), 3000);
+      } else if (code === 503) {
+        // Service unavailable — wait longer before reconnecting
+        console.log('[Snuggle X Bot] WhatsApp service unavailable (503). Retrying in 30s...');
+        setTimeout(() => start(), 30000);
+      } else {
+        // Other errors — reconnect after 5 seconds
+        setTimeout(() => start(), 5000);
       }
     }
   });
