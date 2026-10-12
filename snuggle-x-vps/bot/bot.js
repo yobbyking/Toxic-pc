@@ -1,5 +1,6 @@
 // Snuggle X Bot — runs as a pm2 process per user.
-// Usage: node bot.js <sessionIdBase64>
+// Usage: node bot.js <sessionFolder>
+// The sessionFolder contains the Baileys auth state files (creds.json, pre-key-*.json, etc.)
 
 const {
   useMultiFileAuthState,
@@ -12,35 +13,22 @@ const {
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const zlib = require('zlib');
 const P = require('pino');
 
-const SESSION_ID = process.argv[2];
-if (!SESSION_ID) {
-  console.error('Usage: node bot.js <yobbyx:~sessionBase64>');
+const sessionDir = process.argv[2];
+if (!sessionDir || !fs.existsSync(sessionDir)) {
+  console.error('Usage: node bot.js <sessionFolder>');
+  console.error('The sessionFolder must contain creds.json and pre-key files.');
   process.exit(1);
 }
 
-const b64 = SESSION_ID.replace(/^yobbyx:~/, '');
-let sessionFiles;
-try {
-  const gzipped = Buffer.from(b64, 'base64');
-  const json = zlib.gunzipSync(gzipped).toString('utf-8');
-  sessionFiles = JSON.parse(json);
-} catch (e) {
-  try {
-    sessionFiles = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
-  } catch (e2) {
-    console.error('Invalid session ID');
-    process.exit(1);
-  }
-}
-
+// Read owner info from creds.json
 let ownerJid = null;
 let ownerName = 'Not Set!';
-if (sessionFiles['creds.json']) {
+const credsFile = path.join(sessionDir, 'creds.json');
+if (fs.existsSync(credsFile)) {
   try {
-    const creds = JSON.parse(Buffer.from(sessionFiles['creds.json'], 'base64').toString('utf-8'));
+    const creds = JSON.parse(fs.readFileSync(credsFile, 'utf-8'));
     if (creds.me && creds.me.id) {
       ownerJid = creds.me.id;
       ownerName = creds.me.name || 'Not Set!';
@@ -49,14 +37,7 @@ if (sessionFiles['creds.json']) {
 }
 const ownerNumber = ownerJid ? ownerJid.split(':')[0].split('@')[0] : null;
 console.log(`[Snuggle X Bot] Owner: ${ownerNumber} (${ownerJid})`);
-
-const sessionDir = path.join(__dirname, '..', 'sessions', 'bot-' + (ownerNumber || Date.now()));
-fs.mkdirSync(sessionDir, { recursive: true });
-for (const [name, b64content] of Object.entries(sessionFiles)) {
-  const fp = path.join(sessionDir, name);
-  fs.mkdirSync(path.dirname(fp), { recursive: true });
-  fs.writeFileSync(fp, Buffer.from(b64content, 'base64'));
-}
+console.log(`[Snuggle X Bot] Session dir: ${sessionDir}`);
 
 // === Mode file ===
 const modeFile = path.join(sessionDir, 'mode.txt');
@@ -94,7 +75,7 @@ async function start() {
   sock.ev.on('creds.update', saveCreds);
 
   let isStarting = true;
-  sock.ev.on('connection.update', (update) => {
+  sock.ev.on('connection.update', async (update) => {
     if (update.connection === 'open') {
       console.log('[Snuggle X Bot] ✅ Connected as', sock.user.id);
       if (isStarting) {

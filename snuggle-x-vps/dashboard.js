@@ -102,8 +102,8 @@ app.post('/api/deploy', auth, (req, res) => {
     fs.writeFileSync(fp, Buffer.from(b64content, 'base64'));
   }
 
-  // Start with pm2 — bot.js is in ./bot/bot.js
-  exec(`pm2 start bot/bot.js --name "${pm2Name}" -- "${sessionId}"`, { cwd: __dirname }, (err, stdout, stderr) => {
+  // Start with pm2 — pass the session folder path (not the long session ID)
+  exec(`pm2 start bot/bot.js --name "${pm2Name}" -- "${sessionDir}"`, { cwd: __dirname }, (err, stdout, stderr) => {
     if (err) {
       return res.status(500).json({ error: 'pm2 start failed', details: stderr });
     }
