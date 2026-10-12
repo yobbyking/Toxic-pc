@@ -2,9 +2,18 @@
 // Usage: node bot.js <sessionIdBase64>
 // The sessionIdBase64 starts with "yobbyx:~" prefix.
 
-const { useMultiFileAuthState, makeWASocket, DisconnectReason, fetchLatestBaileysVersion, Browsers } = require('@whiskeysockets/baileys');
+const {
+  useMultiFileAuthState,
+  makeWASocket,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  makeCacheableSignalKeyStore,
+  Browsers,
+} = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const P = require('pino');
 
 const SESSION_ID = process.argv[2];
 if (!SESSION_ID) {
@@ -12,7 +21,6 @@ if (!SESSION_ID) {
   process.exit(1);
 }
 
-// Strip prefix
 const b64 = SESSION_ID.replace(/^yobbyx:~/, '');
 let sessionFiles;
 try {
@@ -22,19 +30,20 @@ try {
   process.exit(1);
 }
 
-// Determine owner number from the session files (we saved owner.txt earlier? Actually we need to figure it out)
-// Actually we saved creds.json — the owner JID is in there
 let ownerJid = null;
+let ownerName = 'Not Set!';
 if (sessionFiles['creds.json']) {
   try {
     const creds = JSON.parse(Buffer.from(sessionFiles['creds.json'], 'base64').toString('utf-8'));
-    if (creds.me && creds.me.id) ownerJid = creds.me.id;
+    if (creds.me && creds.me.id) {
+      ownerJid = creds.me.id;
+      ownerName = creds.me.name || 'Not Set!';
+    }
   } catch {}
 }
 const ownerNumber = ownerJid ? ownerJid.split(':')[0].split('@')[0] : null;
 console.log(`[Snuggle X Bot] Owner: ${ownerNumber} (${ownerJid})`);
 
-// Write session files to a folder — sessions are at parent dir
 const sessionDir = path.join(__dirname, '..', 'sessions', 'bot-' + (ownerNumber || Date.now()));
 fs.mkdirSync(sessionDir, { recursive: true });
 for (const [name, b64content] of Object.entries(sessionFiles)) {
@@ -46,30 +55,43 @@ for (const [name, b64content] of Object.entries(sessionFiles)) {
 async function start() {
   const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
   const { version } = await fetchLatestBaileysVersion();
+  const logger = P({ level: 'warn' }, P.destination({ sync: true }));
 
   const sock = makeWASocket({
     version,
-    auth: state,
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, logger),
+    },
     printQRInTerminal: false,
     browser: Browsers.appropriate('Chrome'),
-    logger: require('pino')({ level: 'silent' }),
+    logger,
+    markOnlineOnConnect: false,
+    defaultQueryTimeoutMs: 120000,
+    connectTimeoutMs: 120000,
+    keepAliveIntervalMs: 30000,
+    retryRequestDelayMs: 2000,
+    linkPreview: false,
   });
 
   sock.ev.on('creds.update', saveCreds);
 
+  let isStarting = true;
   sock.ev.on('connection.update', (update) => {
     if (update.connection === 'open') {
-      console.log('[Snuggle X Bot] Connected as', sock.user.id);
-      // Send a "now active" message to owner
-      sock.sendMessage(ownerJid, {
-        text: '*`SNUGGLE X BOT IS NOW LIVE ✅`*\n> snuggle x bot\n\nType *.menu* to see all commands.',
-      }).catch(() => {});
+      console.log('[Snuggle X Bot] ✅ Connected as', sock.user.id);
+      if (isStarting) {
+        isStarting = false;
+        sock.sendMessage(ownerJid, {
+          text: '*`SNUGGLE X BOT IS NOW LIVE ✅`*\n> snuggle x bot\n\nType *.menu* to see commands. Type *.all* to see the full command list.',
+        }).catch(() => {});
+      }
     }
     if (update.connection === 'close') {
       const code = update.lastDisconnect?.error?.output?.statusCode;
       console.log('[Snuggle X Bot] closed:', code);
       if (code !== DisconnectReason.loggedOut) {
-        start(); // Reconnect
+        start();
       }
     }
   });
@@ -80,106 +102,192 @@ async function start() {
 
     const sender = m.key.remoteJid;
     const senderNumber = sender.split(':')[0].split('@')[0];
+    const pushName = m.pushName || 'User';
 
     // === PRIVATE BOT — only respond to owner ===
     if (senderNumber !== ownerNumber) return;
 
-    // Extract text
     let text = '';
     if (m.message.conversation) text = m.message.conversation;
     else if (m.message.extendedTextMessage?.text) text = m.message.extendedTextMessage.text;
     else if (m.message.imageMessage?.caption) text = m.message.imageMessage.caption;
+    else if (m.message.videoMessage?.caption) text = m.message.videoMessage.caption;
     else return;
 
-    const cmd = text.trim().toLowerCase().split(/\s+/)[0];
-    console.log(`[CMD] ${senderNumber}: ${text}`);
+    const raw = text.trim();
+    const cmd = raw.toLowerCase().split(/\s+/)[0];
+    console.log(`[CMD] ${senderNumber}: ${raw}`);
 
+    // === Main menu (.menu or .m) ===
+    if (cmd === '.menu' || cmd === '.m' || cmd === '!menu' || cmd === '/menu') {
+      await sock.sendMessage(sender, { text: buildMenu(pushName) }, { quoted: m });
+      return;
+    }
+
+    // === Full command list (.all) ===
+    if (cmd === '.all' || cmd === '!all' || cmd === '/all') {
+      await sock.sendMessage(sender, { text: buildAllMenu() }, { quoted: m });
+      return;
+    }
+
+    // === Other commands ===
     switch (cmd) {
-      case '.menu': case '!menu': case '/menu':
-        await sock.sendMessage(sender, { text: getMenu() });
+      case '.ping': case '!ping': case '/ping': {
+        const t = Date.now();
+        await sock.sendMessage(sender, { text: `*PONG* 🏓\nLatency: ${Date.now() - t}ms` }, { quoted: m });
         break;
-      case '.alive': case '!alive':
-        await sock.sendMessage(sender, { text: getAlive() });
+      }
+      case '.alive': case '!alive': case '/alive': {
+        await sock.sendMessage(sender, { text: buildAlive() }, { quoted: m });
         break;
-      case '.owner': case '!owner':
-        await sock.sendMessage(sender, { text: getOwner() });
+      }
+      case '.owner': case '!owner': case '/owner': {
+        await sock.sendMessage(sender, { text: buildOwner() }, { quoted: m });
         break;
-      case '.ping': case '!ping':
-        const start = Date.now();
-        await sock.sendMessage(sender, { text: `*PONG* 🏓\nLatency: ${Date.now() - start}ms` });
-        break;
-      case '.sticker': case '!sticker':
+      }
+      case '.sticker': case '!sticker': case '/sticker': {
         if (m.message.imageMessage) {
-          const buf = await sock.downloadMediaMessage(m);
-          await sock.sendMessage(sender, {
-            sticker: Buffer.from(buf),
-          }, { quoted: m });
+          try {
+            const buf = await sock.downloadMediaMessage(m);
+            await sock.sendMessage(sender, {
+              sticker: Buffer.from(buf),
+            }, { quoted: m });
+          } catch {
+            await sock.sendMessage(sender, { text: 'Failed to make sticker 😢' }, { quoted: m });
+          }
         } else {
-          await sock.sendMessage(sender, { text: 'Send an image with caption .sticker' });
+          await sock.sendMessage(sender, { text: 'Send an image with caption .sticker' }, { quoted: m });
         }
         break;
-      case '.help': case '!help':
-        await sock.sendMessage(sender, { text: getHelp() });
+      }
+      case '.help': case '!help': case '/help': {
+        await sock.sendMessage(sender, { text: `Type *.menu* for the bot menu, or *.all* for the full command list.` }, { quoted: m });
         break;
+      }
+      case '.whoami': case '!whoami': case '/whoami': {
+        await sock.sendMessage(sender, { text: `*You are* ${pushName}\n*Number:* ${senderNumber}\n*Status:* Owner 👑` }, { quoted: m });
+        break;
+      }
       default:
-        if (cmd.startsWith('.')) {
-          await sock.sendMessage(sender, { text: `Unknown command: ${cmd}\nType *.menu* to see all commands.` });
+        if (cmd.startsWith('.') || cmd.startsWith('!') || cmd.startsWith('/')) {
+          await sock.sendMessage(sender, { text: `Unknown command: ${cmd}\nType *.menu* to see the menu, or *.all* for full list.` }, { quoted: m });
         }
     }
   });
 }
 
-function getMenu() {
-  return `
-╭═══ ❲ 💕 SNUGGLE X BOT ❳ ═══╗
-║   *Owner:* ${ownerNumber}
-║   *Status:* ✅ Online
-║   *Mode:* Private
-╰═══════════════════════╯
+// ============================================================
+// === MENU BUILDERS ===
+// ============================================================
+
+function buildMenu(pushName) {
+  const mem = process.memoryUsage();
+  const memMB = (mem.rss / 1024 / 1024).toFixed(0);
+  const totalRAM = Math.round(os.totalmem() / 1024 / 1024 / 1024);
+  const usedRAM = (mem.rss / 1024 / 1024 / 1024).toFixed(1);
+  // RAM usage as % of system total
+  const ramPct = Math.min(100, Math.round((mem.rss / os.totalmem()) * 100));
+  const ramBarLen = 10;
+  const ramFilled = Math.round((ramPct / 100) * ramBarLen);
+  const ramBar = '█'.repeat(ramFilled) + '░'.repeat(ramBarLen - ramFilled);
+
+  return `┏▣ ◈ *_SNUGGLE-X_* ◈     
+┃ *\`ᴏᴡɴᴇʀ\`* : ${ownerName}
+┃ *\`ɴᴜᴍʙᴇʀ\`* : ${ownerNumber}
+┃ *\`ᴘʀᴇғɪx\`* : [ . ]
+┃ *\`ᴍᴏᴅᴇ\`* : Private
+┃ *\`ᴜsᴀɢᴇ\`* : ${memMB} MB of ${totalRAM} GB  
+┃ *\`ʀᴀᴍ\`*: [${ramBar}] ${ramPct}%
+┃ *\`ᴜᴘᴛɪᴍᴇ\`* : ${formatUptime(process.uptime())}
+┗▣
+
+> created by yobby king
+
+> Instagram @yobby_mking
+
+\`Command .all to see full command list ✅❤️\``;
+}
+
+function buildAllMenu() {
+  return `╭═══════════════════════✦═╗
+║   *SNUGGLE X • FULL COMMANDS*   ║
+╚═══════════════════════✦═╝
 
 ╭─ ❲ 👑 OWNER ❳
-├ .ping — check latency
+├ .menu — show main menu
+├ .all — show this full list
 ├ .alive — bot status
 ├ .owner — owner info
-├ .menu — this menu
+├ .ping — latency check
+├ .whoami — your session info
+├ .help — quick help
 ╰────────────────────
 
 ╭─ ❲ 🎨 MEDIA ❳
 ├ .sticker — convert image to sticker
 ├ .toimg — (coming soon)
+├ .mp3 — (coming soon)
 ╰────────────────────
 
 ╭─ ❲ 🛠 UTILS ❳
-├ .help — quick help
-╜ .time — current time
+├ .time — current time
+├ .date — current date
+├ .joke — random joke
+├ .quote — random quote
 ╰────────────────────
 
-*Snuggle X* · Made with 💕
-*Contact:* 0795314221 / 0181163563
-`;
+╭─ ❲ 🌐 GROUP ❳
+├ .tagall — tag everyone
+├ .hidetag — hidden tag
+├ .promote — promote user
+├ .demote — demote user
+╰────────────────────
+
+╭─ ❲ 🎭 FUN ❳
+├ .truth — truth question
+├ .dare — dare challenge
+├ .8ball — magic 8 ball
+├ .ship — compatibility check
+╰────────────────────
+
+╭─ ❲ ⚙️ SETTINGS ❳
+├ .setname — change bot display name
+├ .setprefix — change command prefix
+├ .mode — toggle public/private
+╰────────────────────
+
+*SNUGGLE X* · Created by Yobby King
+> Instagram @yobby_mking
+> Contact dev: 0795314221 / 0181163563`;
 }
 
-function getAlive() {
-  return `
-*SNUGGLE X IS ALIVE ✅*
+function buildAlive() {
+  const mem = process.memoryUsage();
+  const memMB = (mem.rss / 1024 / 1024).toFixed(0);
+  return `*SNUGGLE X IS ALIVE ✅*
 > snuggle x bot
-> status: online
-> owner: ${ownerNumber}
-> uptime: ${process.uptime() ? Math.floor(process.uptime()/60) + ' min' : 'just started'}
-`;
+> status: online 🟢
+> owner: ${ownerName}
+> number: ${ownerNumber}
+> uptime: ${formatUptime(process.uptime())}
+> memory: ${memMB} MB`;
 }
 
-function getOwner() {
-  return `
-*BOT OWNER* 👑
+function buildOwner() {
+  return `*BOT OWNER* 👑
 > Name: Yobby King
 > Number: ${ownerNumber}
-> Contact dev: 0795314221 / 0181163563
-`;
+> Instagram: @yobby_mking
+> Contact dev: 0795314221 / 0181163563`;
 }
 
-function getHelp() {
-  return `Type *.menu* to see all available commands. 💕`;
+function formatUptime(s) {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
 }
 
 start().catch(console.error);
