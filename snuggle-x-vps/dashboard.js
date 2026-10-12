@@ -67,9 +67,18 @@ app.post('/api/deploy', auth, (req, res) => {
   const b64 = sessionId.replace(/^yobbyx:~/, '');
   let sessionFiles;
   try {
-    sessionFiles = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
+    // Try gzip first (new format)
+    try {
+      const zlib = require('zlib');
+      const gzipped = Buffer.from(b64, 'base64');
+      const json = zlib.gunzipSync(gzipped).toString('utf-8');
+      sessionFiles = JSON.parse(json);
+    } catch (e) {
+      // Fall back to plain base64 JSON (old format)
+      sessionFiles = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
+    }
   } catch {
-    return res.status(400).json({ error: 'Invalid base64 in session ID' });
+    return res.status(400).json({ error: 'Invalid session ID — could not decode' });
   }
 
   // Find owner
