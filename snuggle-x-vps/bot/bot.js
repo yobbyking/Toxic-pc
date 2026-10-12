@@ -13,6 +13,7 @@ const {
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const zlib = require('zlib');
 const P = require('pino');
 
 const SESSION_ID = process.argv[2];
@@ -24,10 +25,18 @@ if (!SESSION_ID) {
 const b64 = SESSION_ID.replace(/^yobbyx:~/, '');
 let sessionFiles;
 try {
-  sessionFiles = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
+  // New format: base64 → gzip → JSON
+  const gzipped = Buffer.from(b64, 'base64');
+  const json = zlib.gunzipSync(gzipped).toString('utf-8');
+  sessionFiles = JSON.parse(json);
 } catch (e) {
-  console.error('Invalid session ID');
-  process.exit(1);
+  // Fallback: old format (plain JSON + base64) for backward compat
+  try {
+    sessionFiles = JSON.parse(Buffer.from(b64, 'base64').toString('utf-8'));
+  } catch (e2) {
+    console.error('Invalid session ID');
+    process.exit(1);
+  }
 }
 
 let ownerJid = null;
