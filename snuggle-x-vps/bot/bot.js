@@ -118,16 +118,24 @@ async function start() {
       if (!m || !m.message) return;
 
       const sender = m.key.remoteJid;
-      // Skip newsletters and broadcasts
+      // === DEBUG: Log every incoming message so we can see what's arriving ===
+      const textPreview = m.message.conversation || m.message.extendedTextMessage?.text || m.message.imageMessage?.caption || '(no text)';
+      console.log(`[MSG] from=${sender} fromMe=${m.key.fromMe} participant=${m.key.participant || '-'} type=${Object.keys(m.message)[0]} text="${String(textPreview).slice(0, 80)}"`);
+
+      // Skip newsletters and broadcasts (but allow @lid — that's DMs in the new privacy format)
       if (sender && (sender.includes('newsletter') || sender.includes('broadcast'))) {
         return;
       }
 
-      // === Allow "Message yourself" (fromMe=true) when sent from the owner's own chat ===
-      // When you message yourself in WhatsApp, the message has fromMe=true because
-      // it's sent from your account (which is the same account the bot is linked to).
-      // We need to process these so .menu etc. work when testing alone.
-      const isSelfChat = sender && sender.split('@')[0] === ownerNumber && sender.endsWith('@s.whatsapp.net');
+      // === Handle LID format (new WhatsApp privacy) + device ID format ===
+      // DMs may come in as:
+      //   - <phone>:<deviceId>@s.whatsapp.net  (e.g. 254795314221:11@s.whatsapp.net)
+      //   - <randomLid>@lid                     (e.g. 167465791275083@lid — privacy mode)
+      // We accept fromMe=true for any of these as it's our own chat
+      const isLid = sender && sender.endsWith('@lid');
+      const senderPhone = sender ? sender.split('@')[0].split(':')[0] : '';
+      const isSelfChat = (senderPhone === ownerNumber && sender.endsWith('@s.whatsapp.net')) ||
+                         (isLid && m.key.fromMe); // LID + fromMe = our own DM chat
       if (m.key.fromMe && !isSelfChat) return;
 
       // Determine if this is a group chat
@@ -138,7 +146,8 @@ async function start() {
       if (!senderJid) return;
       const senderNumber = senderJid.split(':')[0].split('@')[0];
       const pushName = m.pushName || (isSelfChat ? 'You' : 'User');
-      const isOwner = senderNumber === ownerNumber || isSelfChat;
+      // For LID messages from self, treat as owner
+      const isOwner = senderNumber === ownerNumber || isSelfChat || (isLid && m.key.fromMe);
       const mode = getMode();
 
       // Extract text from any message type
