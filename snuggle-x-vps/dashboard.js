@@ -53,7 +53,7 @@ app.post('/api/login', (req, res) => {
 app.get('/api/bots', auth, (req, res) => {
   const list = Array.from(bots.values()).map(b => ({
     ...b,
-    pid: getBotPid(b.pm2Name),
+    ...getBotInfo(b.pm2Name),
   }));
   res.json({ bots: list });
 });
@@ -184,6 +184,30 @@ function getBotPid(pm2Name) {
     const proc = list.find(p => p.name === pm2Name);
     return proc ? proc.pid : null;
   } catch { return null; }
+}
+
+function getBotInfo(pm2Name) {
+  try {
+    const out = execSync(`pm2 jlist 2>/dev/null`, { encoding: 'utf-8' });
+    const list = JSON.parse(out);
+    const proc = list.find(p => p.name === pm2Name);
+    if (!proc) return { pid: null, uptime: null, memory: null };
+    return {
+      pid: proc.pid,
+      uptime: proc.pm2_env && proc.pm2_env.pm_uptime ? formatUptime((Date.now() - proc.pm2_env.pm_uptime) / 1000) : null,
+      memory: proc.monit ? `${(proc.monit.memory / 1024 / 1024).toFixed(1)} MB` : null,
+    };
+  } catch { return { pid: null, uptime: null, memory: null }; }
+}
+
+function formatUptime(sec) {
+  if (!sec || sec < 0) return '—';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }
 
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'snuggle-x-dashboard' }));

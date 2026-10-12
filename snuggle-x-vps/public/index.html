@@ -10,11 +10,13 @@
   --bg: #0a0a14;
   --card: rgba(255,255,255,0.04);
   --border: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.12);
   --pink: #FF5C8A;
   --purple: #C44FE8;
   --gold: #FFB938;
   --green: #4ADE80;
   --red: #F87171;
+  --cyan: #22D3EE;
   --text: #E8E8F0;
   --muted: #8A8A9A;
 }
@@ -30,8 +32,8 @@ body::before {
   content: "";
   position: fixed; inset: 0; z-index: -1;
   background:
-    radial-gradient(ellipse 800px 600px at 0% 0%, rgba(255,92,138,0.15), transparent 60%),
-    radial-gradient(ellipse 800px 600px at 100% 100%, rgba(196,79,232,0.15), transparent 60%);
+    radial-gradient(ellipse 800px 600px at 0% 0%, rgba(255,92,138,0.1), transparent 60%),
+    radial-gradient(ellipse 800px 600px at 100% 100%, rgba(196,79,232,0.1), transparent 60%);
 }
 .login-wrap {
   min-height: 100vh;
@@ -39,12 +41,12 @@ body::before {
   padding: 20px;
 }
 .login-card {
-  max-width: 380px;
+  max-width: 400px;
   width: 100%;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 24px;
-  padding: 36px 28px;
+  padding: 40px 30px;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   box-shadow: 0 20px 60px rgba(0,0,0,0.3);
@@ -57,17 +59,8 @@ body::before {
   -webkit-text-fill-color: transparent;
   margin-bottom: 4px;
 }
-.login-card .sub {
-  text-align: center;
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 24px;
-}
-.login-card .logo {
-  text-align: center;
-  font-size: 48px;
-  margin-bottom: 8px;
-}
+.login-card .sub { text-align: center; font-size: 12px; color: var(--muted); margin-bottom: 24px; }
+.login-card .logo { text-align: center; font-size: 48px; margin-bottom: 8px; }
 .input {
   width: 100%;
   padding: 14px 16px;
@@ -80,10 +73,7 @@ body::before {
   outline: none;
   transition: all 0.2s;
 }
-.input:focus {
-  border-color: var(--pink);
-  background: rgba(255,92,138,0.05);
-}
+.input:focus { border-color: var(--pink); background: rgba(255,92,138,0.05); }
 .btn {
   width: 100%;
   padding: 14px;
@@ -99,21 +89,16 @@ body::before {
 }
 .btn:hover { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(255,92,138,0.3); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-.btn.secondary {
-  background: var(--card);
-  border: 1px solid var(--border);
-  color: var(--text);
-}
-.dash {
-  display: none;
-  min-height: 100vh;
-}
+.btn.secondary { background: var(--card); border: 1px solid var(--border); color: var(--text); }
+.btn.danger { background: rgba(248,113,113,0.15); border: 1px solid rgba(248,113,113,0.3); color: var(--red); }
+
+.dash { display: none; min-height: 100vh; }
 .topbar {
-  background: var(--card);
-  border-bottom: 1px solid var(--border);
-  padding: 16px 24px;
-  position: sticky; top: 0; z-index: 100;
+  background: rgba(10,10,20,0.8);
   backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  position: sticky; top: 0; z-index: 100;
   display: flex; justify-content: space-between; align-items: center;
 }
 .topbar .logo {
@@ -125,11 +110,7 @@ body::before {
 .topbar .actions { display: flex; gap: 10px; }
 .topbar .stats { display: flex; gap: 16px; font-size: 12px; color: var(--muted); }
 .topbar .stats span { color: var(--pink); font-weight: 600; }
-.content {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 24px;
-}
+.content { max-width: 1100px; margin: 0 auto; padding: 24px; }
 .section {
   background: var(--card);
   border: 1px solid var(--border);
@@ -152,6 +133,7 @@ body::before {
   padding: 2px 8px;
   border-radius: 8px;
 }
+.section h2 .badge.muted { background: var(--card); color: var(--muted); border: 1px solid var(--border); }
 textarea {
   width: 100%;
   background: rgba(255,255,255,0.04);
@@ -166,69 +148,172 @@ textarea {
   min-height: 80px;
   margin-bottom: 12px;
 }
-.bot-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
+
+/* === Bot Table === */
+.bot-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
 }
-.bot-card {
+.bot-table thead th {
+  text-align: left;
+  padding: 12px 14px;
   background: rgba(255,255,255,0.03);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 16px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+.bot-table thead th:hover { color: var(--text); }
+.bot-table tbody tr {
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
   transition: all 0.2s;
 }
-.bot-card:hover {
-  border-color: var(--pink);
-  transform: translateY(-2px);
+.bot-table tbody tr:hover { background: rgba(255,92,138,0.04); }
+.bot-table tbody tr.active { background: rgba(255,92,138,0.08); border-left: 3px solid var(--pink); }
+.bot-table tbody td {
+  padding: 14px;
+  vertical-align: middle;
 }
-.bot-card .row {
-  display: flex;
-  justify-content: space-between;
+.bot-table .owner-cell { display: flex; align-items: center; gap: 10px; }
+.bot-table .avatar {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--pink), var(--purple));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.bot-table .owner-name { font-weight: 600; font-size: 13px; }
+.bot-table .owner-num { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.bot-table .status-pill {
+  display: inline-flex;
   align-items: center;
-  margin-bottom: 8px;
-}
-.bot-card .name {
-  font-weight: 600;
-  font-size: 14px;
-}
-.bot-card .num {
-  font-size: 11px;
-  color: var(--muted);
-}
-.bot-card .status {
-  font-size: 11px;
+  gap: 6px;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: 100px;
+  font-size: 11px;
   font-weight: 600;
 }
-.bot-card .status.online { background: rgba(74,222,128,0.15); color: var(--green); }
-.bot-card .status.offline { background: rgba(248,113,113,0.15); color: var(--red); }
-.bot-card .actions {
-  display: flex; gap: 6px;
-  margin-top: 10px;
-}
-.bot-card .actions button {
-  flex: 1;
-  padding: 6px 10px;
+.bot-table .status-pill.online { background: rgba(74,222,128,0.15); color: var(--green); }
+.bot-table .status-pill.offline { background: rgba(248,113,113,0.15); color: var(--red); }
+.bot-table .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+.bot-table .status-pill.online .status-dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.bot-table .status-pill.offline .status-dot { background: var(--red); }
+.bot-table .action-btns { display: flex; gap: 6px; }
+.bot-table .action-btn {
+  padding: 6px 12px;
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--text);
   border-radius: 8px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  transition: all 0.2s;
 }
-.bot-card .actions button.stop {
-  background: rgba(248,113,113,0.15);
-  color: var(--red);
-  border-color: rgba(248,113,113,0.3);
-}
+.bot-table .action-btn:hover { border-color: var(--pink); color: var(--pink); }
+.bot-table .action-btn.stop { color: var(--red); border-color: rgba(248,113,113,0.3); }
+.bot-table .action-btn.stop:hover { background: rgba(248,113,113,0.15); }
+.bot-table .action-btn.logs { color: var(--cyan); border-color: rgba(34,211,238,0.3); }
+.bot-table .action-btn.logs:hover { background: rgba(34,211,238,0.1); }
+
 .empty {
   text-align: center;
-  padding: 40px 20px;
+  padding: 60px 20px;
   color: var(--muted);
 }
-.empty .icon { font-size: 60px; margin-bottom: 10px; }
+.empty .icon { font-size: 60px; margin-bottom: 12px; }
+
+/* === Bot Details Panel === */
+.bot-details {
+  display: none;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px;
+  margin-bottom: 20px;
+  animation: slidein 0.3s ease;
+}
+.bot-details.show { display: block; }
+.bot-details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.bot-details-header h2 {
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.bot-details-header .close-btn {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 16px;
+}
+.bot-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.detail-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+.detail-card .k {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.detail-card .v {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 600;
+  font-family: ui-monospace, monospace;
+}
+.detail-card .v.success { color: var(--green); }
+.detail-card .v.error { color: var(--red); }
+.detail-card .v.muted { color: var(--muted); }
+
+.bot-logs {
+  background: rgba(0,0,0,0.5);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+  color: var(--muted);
+}
+.bot-logs .log-line { padding: 2px 0; }
+.bot-logs .log-line.cmd { color: var(--cyan); }
+.bot-logs .log-line.success { color: var(--green); }
+.bot-logs .log-line.error { color: var(--red); }
+.bot-logs .log-line.system { color: var(--purple); }
+
 .toast {
   position: fixed; bottom: 24px; left: 50%;
   transform: translateX(-50%);
@@ -243,6 +328,46 @@ textarea {
 }
 .toast.show { display: block; animation: slideup 0.3s ease; }
 @keyframes slideup { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+@keyframes slidein { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* === Stats cards === */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+}
+.stat-card .k {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.stat-card .v {
+  font-size: 24px;
+  font-weight: 700;
+  font-family: ui-monospace, monospace;
+}
+.stat-card .v.green { color: var(--green); }
+.stat-card .v.pink { color: var(--pink); }
+.stat-card .v.gold { color: var(--gold); }
+
+@media (max-width: 700px) {
+  .bot-table thead th:nth-child(3),
+  .bot-table tbody td:nth-child(3),
+  .bot-table thead th:nth-child(4),
+  .bot-table tbody td:nth-child(4) { display: none; }
+  .content { padding: 16px; }
+  .topbar .stats { display: none; }
+}
 </style>
 </head>
 <body>
@@ -262,29 +387,67 @@ textarea {
     <div class="logo">💕 Snuggle X Admin</div>
     <div class="stats" id="stats"></div>
     <div class="actions">
-      <button class="btn secondary" style="width:auto; padding:8px 16px;" onclick="logout()">Logout</button>
+      <button class="btn secondary" style="width:auto; padding:8px 16px; font-size:12px;" onclick="logout()">Logout</button>
     </div>
   </div>
 
   <div class="content">
+    <!-- Stats grid -->
+    <div class="stats-grid" id="statsGrid"></div>
+
+    <!-- Bot details (shown when a bot is tapped) -->
+    <div class="bot-details" id="botDetails">
+      <div class="bot-details-header">
+        <h2 id="botDetailsTitle">Bot Details</h2>
+        <button class="close-btn" onclick="closeBotDetails()">✕</button>
+      </div>
+      <div class="bot-details-grid" id="botDetailsGrid"></div>
+      <h3 style="font-size: 13px; color: var(--muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px;">📋 Live Logs</h3>
+      <div class="bot-logs" id="botDetailsLogs">Loading...</div>
+      <div style="display: flex; gap: 8px; margin-top: 14px;">
+        <button class="btn secondary" style="width: auto; padding: 8px 16px; font-size: 12px;" onclick="refreshBotDetails()">Refresh</button>
+        <button class="btn danger" style="width: auto; padding: 8px 16px; font-size: 12px;" id="detailsStopBtn">Stop Bot</button>
+      </div>
+    </div>
+
+    <!-- Deploy new bot -->
     <div class="section">
       <h2>🚀 Deploy New Bot <span class="badge">Paste session ID</span></h2>
       <textarea id="sessionInput" placeholder="yobbyx:~..."></textarea>
       <button class="btn" id="deployBtn" onclick="deployBot()">Deploy Bot</button>
     </div>
 
+    <!-- Bots table -->
     <div class="section">
-      <h2>🤖 Running Bots <span class="badge" id="botCount">0</span></h2>
-      <div class="bot-grid" id="botGrid">
-        <div class="empty"><div class="icon">🤖</div><p>No bots deployed yet</p></div>
+      <h2>🤖 Bots <span class="badge" id="botCount">0</span></h2>
+      <div style="overflow-x: auto;">
+        <table class="bot-table" id="botTable">
+          <thead>
+            <tr>
+              <th>OWNER</th>
+              <th>STATUS</th>
+              <th>PID</th>
+              <th>UPTIME</th>
+              <th>MEMORY</th>
+              <th>STARTED</th>
+              <th>ACTIONS</th>
+            </tr>
+          </thead>
+          <tbody id="botTableBody">
+            <tr><td colspan="7">
+              <div class="empty"><div class="icon">🤖</div><p>No bots deployed yet. Paste a session ID above to deploy.</p></div>
+            </td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
+    <!-- All logs -->
     <div class="section">
-      <h2>📋 Live Bot Logs <span class="badge" id="logCount">0</span> <button class="btn secondary" style="width:auto; padding:6px 12px; font-size:11px; margin-left:auto;" id="refreshLogs" onclick="loadLogs()">Refresh</button></h2>
-      <div id="logsBox" style="background: rgba(0,0,0,0.6); border: 1px solid var(--border); border-radius: 14px; padding: 14px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11px; line-height: 1.6; max-height: 400px; overflow-y: auto; color: var(--muted);">
-        <div style="text-align:center; padding: 20px; color: var(--muted);">Loading logs...</div>
-      </div>
+      <h2>📋 Live Logs (all bots) <span class="badge muted" id="logCount">0</span>
+        <button class="btn secondary" style="width:auto; padding:6px 12px; font-size:11px; margin-left:auto;" onclick="loadLogs()">Refresh</button>
+      </h2>
+      <div class="bot-logs" id="logsBox" style="max-height: 400px;">Loading...</div>
     </div>
   </div>
 </div>
@@ -293,6 +456,8 @@ textarea {
 
 <script>
 let token = localStorage.getItem('snuggle-x-token');
+let bots = [];
+let selectedBotId = null;
 if (token) showDash();
 
 async function doLogin() {
@@ -303,10 +468,7 @@ async function doLogin() {
     body: JSON.stringify({ password }),
   });
   const data = await res.json();
-  if (!res.ok) {
-    alert('Login failed: ' + (data.error || 'wrong password'));
-    return;
-  }
+  if (!res.ok) { alert('Login failed: ' + (data.error || 'wrong password')); return; }
   token = data.token;
   localStorage.setItem('snuggle-x-token', token);
   showDash();
@@ -324,8 +486,164 @@ function showDash() {
   document.getElementById('dash').style.display = 'block';
   loadBots();
   loadLogs();
-  setInterval(loadBots, 10000);
-  setInterval(loadLogs, 5000); // Refresh logs every 5 seconds
+  setInterval(loadBots, 8000);
+  setInterval(loadLogs, 5000);
+  if (selectedBotId) setInterval(refreshBotDetails, 4000);
+}
+
+async function loadBots() {
+  if (!token) return;
+  try {
+    const res = await fetch('/api/bots', { headers: { 'x-admin-token': token } });
+    if (res.status === 401) { logout(); return; }
+    const data = await res.json();
+    bots = data.bots || [];
+    renderBots();
+    renderStats();
+  } catch (e) {}
+}
+
+function renderStats() {
+  const total = bots.length;
+  const online = bots.filter(b => b.pid).length;
+  const offline = total - online;
+  document.getElementById('stats').innerHTML = `
+    <div>Bots: <span>${total}</span></div>
+    <div>Online: <span style="color:#4ADE80">${online}</span></div>
+    <div>Offline: <span style="color:#F87171">${offline}</span></div>
+  `;
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card"><div class="k">Total Bots</div><div class="v pink">${total}</div></div>
+    <div class="stat-card"><div class="k">Online</div><div class="v green">${online}</div></div>
+    <div class="stat-card"><div class="k">Offline</div><div class="v" style="color:var(--red)">${offline}</div></div>
+  `;
+}
+
+function renderBots() {
+  const tbody = document.getElementById('botTableBody');
+  document.getElementById('botCount').textContent = bots.length;
+  if (bots.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty"><div class="icon">🤖</div><p>No bots deployed yet. Paste a session ID above to deploy.</p></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = bots.map(b => {
+    const online = !!b.pid;
+    const initials = (b.ownerNumber || '?').slice(-2);
+    const started = new Date(b.startedAt).toLocaleString();
+    return `
+      <tr class="${selectedBotId === b.id ? 'active' : ''}" onclick="selectBot('${b.id}')">
+        <td>
+          <div class="owner-cell">
+            <div class="avatar">${initials}</div>
+            <div>
+              <div class="owner-name">${b.label || b.ownerNumber || 'Unknown'}</div>
+              <div class="owner-num">${b.ownerNumber || '—'}</div>
+            </div>
+          </div>
+        </td>
+        <td>
+          <span class="status-pill ${online ? 'online' : 'offline'}">
+            <span class="status-dot"></span>${online ? 'Online' : 'Offline'}
+          </span>
+        </td>
+        <td>${b.pid || '—'}</td>
+        <td>${b.uptime || '—'}</td>
+        <td>${b.memory || '—'}</td>
+        <td style="font-size:11px; color: var(--muted);">${started}</td>
+        <td onclick="event.stopPropagation()">
+          <div class="action-btns">
+            <button class="action-btn logs" onclick="selectBot('${b.id}')">📋 Logs</button>
+            <button class="action-btn stop" onclick="stopBot('${b.id}')">Stop</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function selectBot(id) {
+  selectedBotId = id;
+  renderBots(); // highlight selected row
+  await refreshBotDetails();
+  document.getElementById('botDetails').classList.add('show');
+  document.getElementById('botDetails').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function refreshBotDetails() {
+  if (!selectedBotId) return;
+  const bot = bots.find(b => b.id === selectedBotId);
+  if (!bot) { closeBotDetails(); return; }
+  document.getElementById('botDetailsTitle').innerHTML = `🤖 ${bot.label || bot.ownerNumber || 'Bot'}`;
+  const online = !!bot.pid;
+  document.getElementById('botDetailsGrid').innerHTML = `
+    <div class="detail-card"><div class="k">Owner Number</div><div class="v">${bot.ownerNumber || '—'}</div></div>
+    <div class="detail-card"><div class="k">Bot ID</div><div class="v muted">${bot.id}</div></div>
+    <div class="detail-card"><div class="k">PM2 Name</div><div class="v muted">${bot.pm2Name}</div></div>
+    <div class="detail-card"><div class="k">PID</div><div class="v ${online ? 'success' : 'error'}">${bot.pid || 'Offline'}</div></div>
+    <div class="detail-card"><div class="k">Status</div><div class="v ${online ? 'success' : 'error'}">${online ? 'Online 🟢' : 'Offline 🔴'}</div></div>
+    <div class="detail-card"><div class="k">Uptime</div><div class="v">${bot.uptime || '—'}</div></div>
+    <div class="detail-card"><div class="k">Memory</div><div class="v">${bot.memory || '—'}</div></div>
+    <div class="detail-card"><div class="k">Started At</div><div class="v muted" style="font-size:12px;">${new Date(bot.startedAt).toLocaleString()}</div></div>
+    <div class="detail-card"><div class="k">Session ID (first 30)</div><div class="v muted" style="font-size:11px; word-break: break-all;">${bot.sessionId}</div></div>
+  `;
+  document.getElementById('detailsStopBtn').onclick = () => stopBot(selectedBotId);
+  // Load logs
+  try {
+    const res = await fetch(`/api/bot/${selectedBotId}/logs?lines=100`, { headers: { 'x-admin-token': token } });
+    const data = await res.json();
+    const logs = data.logs || '';
+    const colored = logs.split('\n').filter(l => l.trim()).map(line => {
+      let cls = '';
+      if (line.includes('[CMD]')) cls = 'cmd';
+      else if (line.includes('Connected') || line.includes('✅')) cls = 'success';
+      else if (line.includes('ERROR') || line.includes('failed')) cls = 'error';
+      else if (line.includes('Snuggle X Bot') || line.includes('LIVE')) cls = 'system';
+      return `<div class="log-line ${cls}">${line.replace(/</g, '&lt;')}</div>`;
+    }).join('');
+    document.getElementById('botDetailsLogs').innerHTML = colored || '<div style="text-align:center; color: var(--muted); padding: 20px;">No logs yet</div>';
+    const logBox = document.getElementById('botDetailsLogs');
+    logBox.scrollTop = logBox.scrollHeight;
+  } catch (e) {
+    document.getElementById('botDetailsLogs').innerHTML = '<div style="color: var(--red);">Failed to load logs</div>';
+  }
+}
+
+function closeBotDetails() {
+  selectedBotId = null;
+  document.getElementById('botDetails').classList.remove('show');
+  renderBots();
+}
+
+async function deployBot() {
+  const sessionId = document.getElementById('sessionInput').value.trim();
+  if (!sessionId) return alert('Paste a session ID');
+  if (!sessionId.startsWith('yobbyx:~')) return alert('Session ID must start with yobbyx:~');
+  const btn = document.getElementById('deployBtn');
+  btn.disabled = true; btn.textContent = 'Deploying...';
+  try {
+    const res = await fetch('/api/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+      body: JSON.stringify({ sessionId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Deploy failed');
+    toast(`✅ Bot deployed for ${data.ownerNumber}`);
+    document.getElementById('sessionInput').value = '';
+    loadBots();
+  } catch (e) {
+    alert('Deploy failed: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Deploy Bot';
+  }
+}
+
+async function stopBot(id) {
+  if (!confirm('Stop this bot?')) return;
+  await fetch('/api/stop/' + id, { method: 'POST', headers: { 'x-admin-token': token } });
+  toast('Bot stopped');
+  if (selectedBotId === id) closeBotDetails();
+  loadBots();
 }
 
 async function loadLogs() {
@@ -342,88 +660,17 @@ async function loadLogs() {
     }
     const lines = text.split('\n').filter(l => l.trim());
     document.getElementById('logCount').textContent = lines.length;
-    // Color-code lines based on content
     const colored = lines.map(line => {
-      let color = '#A7F3D0';
-      let bg = '';
-      if (line.includes('[CMD]')) { color = '#22D3EE'; }
-      else if (line.includes('Connected')) { color = '#10B981'; }
-      else if (line.includes('ERROR') || line.includes('failed')) { color = '#F87171'; }
-      else if (line.includes('Snuggle X Bot')) { color = '#A78BFA'; }
-      else if (line.includes('PONG') || line.includes('LIVE')) { color = '#FBBF24'; }
-      return `<div style="color: ${color}; padding: 2px 0; ${bg}">${line.replace(/</g, '&lt;')}</div>`;
+      let cls = '';
+      if (line.includes('[CMD]')) cls = 'cmd';
+      else if (line.includes('Connected') || line.includes('✅')) cls = 'success';
+      else if (line.includes('ERROR') || line.includes('failed')) cls = 'error';
+      else if (line.includes('Snuggle X Bot') || line.includes('LIVE')) cls = 'system';
+      return `<div class="log-line ${cls}">${line.replace(/</g, '&lt;')}</div>`;
     }).join('');
     box.innerHTML = colored;
-    // Auto-scroll to bottom
     box.scrollTop = box.scrollHeight;
-  } catch (e) { console.error('loadLogs error:', e); }
-}
-
-async function loadBots() {
-  if (!token) return;
-  const res = await fetch('/api/bots', { headers: { 'x-admin-token': token } });
-  if (res.status === 401) { logout(); return; }
-  const data = await res.json();
-  const grid = document.getElementById('botGrid');
-  const bots = data.bots || [];
-  document.getElementById('botCount').textContent = bots.length;
-  document.getElementById('stats').innerHTML = `
-    <div>Bots: <span>${bots.length}</span></div>
-    <div>Online: <span style="color:#4ADE80">${bots.filter(b => b.pid).length}</span></div>
-  `;
-  if (bots.length === 0) {
-    grid.innerHTML = '<div class="empty"><div class="icon">🤖</div><p>No bots deployed yet</p></div>';
-    return;
-  }
-  grid.innerHTML = bots.map(b => `
-    <div class="bot-card">
-      <div class="row">
-        <div>
-          <div class="name">${b.label || b.ownerNumber}</div>
-          <div class="num">📱 ${b.ownerNumber}</div>
-        </div>
-        <div class="status ${b.pid ? 'online' : 'offline'}">${b.pid ? '● Online' : '● Offline'}</div>
-      </div>
-      <div class="num">Started: ${new Date(b.startedAt).toLocaleString()}</div>
-      <div class="num">PID: ${b.pid || '—'}</div>
-      <div class="actions">
-        <button onclick="stopBot('${b.id}')">Stop</button>
-      </div>
-    </div>
-  `).join('');
-}
-
-async function deployBot() {
-  const sessionId = document.getElementById('sessionInput').value.trim();
-  if (!sessionId) return alert('Paste a session ID');
-  if (!sessionId.startsWith('yobbyx:~')) return alert('Session ID must start with yobbyx:~');
-  const btn = document.getElementById('deployBtn');
-  btn.disabled = true;
-  btn.textContent = 'Deploying...';
-  try {
-    const res = await fetch('/api/deploy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
-      body: JSON.stringify({ sessionId }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Deploy failed');
-    toast('✅ Bot deployed for ' + data.ownerNumber);
-    document.getElementById('sessionInput').value = '';
-    loadBots();
-  } catch (e) {
-    alert('Deploy failed: ' + e.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Deploy Bot';
-  }
-}
-
-async function stopBot(id) {
-  if (!confirm('Stop this bot?')) return;
-  await fetch('/api/stop/' + id, { method: 'POST', headers: { 'x-admin-token': token } });
-  toast('Bot stopped');
-  loadBots();
+  } catch (e) {}
 }
 
 function toast(msg) {
