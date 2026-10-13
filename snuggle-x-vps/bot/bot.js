@@ -213,12 +213,16 @@ async function start() {
       const isLid = chatId && chatId.endsWith('@lid');
       const senderPhone = chatId ? chatId.split('@')[0].split(':')[0] : '';
       const isSelfChat = (senderPhone === ownerNumber && chatId && chatId.endsWith('@s.whatsapp.net')) || (isLid && m.key.fromMe);
-      if (m.key.fromMe && !isSelfChat) return;
+      // Allow fromMe=true in groups — since the bot is the owner's linked device,
+      // fromMe=true in a group means the OWNER sent the message.
+      // Only skip fromMe=true in DMs to non-owner (to avoid echo loops).
+      if (m.key.fromMe && !isSelfChat && !isGroup) return;
 
       let senderJid = isGroup ? participant : chatId;
       const senderNumber = senderJid ? senderJid.split(':')[0].split('@')[0] : '';
       const pushName = m.pushName || (isSelfChat ? 'You' : 'User');
-      const ownerCheck = isOwner(senderJid, participantPn) || isSelfChat;
+      // For group messages with fromMe=true, the owner sent it (bot is owner's linked device)
+      const ownerCheck = isOwner(senderJid, participantPn) || isSelfChat || (isGroup && m.key.fromMe);
       const sudoCheck = isSudo(senderJid, participantPn);
       const mode = getMode();
       const prefix = getPrefix();
@@ -232,7 +236,19 @@ async function start() {
       else if (msg.videoMessage?.caption) text = msg.videoMessage.caption;
       else if (msg.viewOnceMessage?.message?.imageMessage?.caption) text = msg.viewOnceMessage.message.imageMessage.caption;
       else if (msg.viewOnceMessage?.message?.videoMessage?.caption) text = msg.viewOnceMessage.message.videoMessage.caption;
-      else return;
+      // Some group messages arrive wrapped in senderKeyDistributionMessage
+      else if (msg.senderKeyDistributionMessage?.groupRegistrationMessage?.groupParticipant?.senderKeyDistributionMessage) {
+        // nested — skip
+      }
+      // Try to extract from nested message structures
+      if (!text) {
+        // Check if there's text inside the message somewhere
+        const msgStr = JSON.stringify(msg);
+        if (msgStr.includes('"conversation"')) {
+          try { text = msg.conversation || ''; } catch {}
+        }
+      }
+      if (!text) return;
 
       const raw = text.trim();
       if (!raw) return;
@@ -501,7 +517,18 @@ async function start() {
         case `${prefix}antilink`: case '.antilink': { await toggleAnti(sock, chatId, m, args, 'antilink', 'link'); break; }
         case `${prefix}antispam`: case '.antispam': { await toggleAnti(sock, chatId, m, args, 'antispam', 'spam'); break; }
         case `${prefix}antibadword`: case '.antibadword': { await toggleAnti(sock, chatId, m, args, 'antibadword', 'badword'); break; }
-        case `${prefix}antidelete`: case '.antidelete': { await toggleAnti(sock, chatId, m, args, 'antidelete', 'delete'); break; }
+        case `${prefix}antidelete`: case '.antidelete': {
+          if (argText === 'all on') {
+            const s = getSettings(); s.global_antidelete = true; saveSettings(s);
+            await sock.sendMessage(chatId, { text: '✅ Anti-delete ON (ALL chats) — deleted messages sent to your DM' }, { quoted: m });
+          } else if (argText === 'all off') {
+            const s = getSettings(); s.global_antidelete = false; saveSettings(s);
+            await sock.sendMessage(chatId, { text: '❌ Anti-delete OFF (all chats)' }, { quoted: m });
+          } else {
+            await toggleAnti(sock, chatId, m, args, 'antidelete', 'delete');
+          }
+          break;
+        }
         case `${prefix}antimention`: case '.antimention': { await toggleAnti(sock, chatId, m, args, 'antimention', 'mention'); break; }
         case `${prefix}antitag`: case '.antitag': { await toggleAnti(sock, chatId, m, args, 'antitag', 'tag'); break; }
         case `${prefix}antisticker`: case '.antisticker': { await toggleAnti(sock, chatId, m, args, 'antisticker', 'sticker'); break; }
@@ -736,18 +763,45 @@ async function start() {
     } catch (e) { console.error('[messages.upsert error]', e.message); }
   });
 
-  // === Anti-delete handler ===
+  // === Anti-delete handler — send deleted messages to owner DM ===
   sock.ev.on('messages.update', async (updates) => {
     try {
       const settings = getSettings();
       for (const update of updates) {
         const chatId = update.key?.remoteJid;
-        if (!chatId || !chatId.endsWith('@g.us')) continue;
+        if (!chatId) continue;
+        // Check if antidelete is on for this group OR globally
         const gs = settings[chatId] || {};
-        if (!gs.antidelete || gs.antidelete === 'off') continue;
-        if (update.update?.message?.protocolMessage?.type === 0) {
+        const globalAntidelete = settings.global_antidelete === true;
+        if (!gs.antidelete && !globalAntidelete) continue;
+        if (gs.antidelete === 'off' && !globalAntidelete) continue;
+        // Check if message was deleted
+        const protocolMsg = update.update?.message?.protocolMessage;
+        if (protocolMsg?.type === 0 || update.update?.status === 'deleted' || (protocolMsg && protocolMsg.type === 0)) {
+          const deletedKey = update.key;
+          const deleter = deletedKey.participant || deletedKey.remoteJid || 'unknown';
+          const deleterNum = deleter.split('@')[0].split(':')[0];
           try {
-            await sock.sendMessage(chatId, { text: `🚫 *Anti-Delete:* A message was deleted by ${update.key.participant?.split('@')[0] || 'someone'}` });
+            // Try to get the original message from the store
+            let origMsg = null;
+            try { origMsg = await sock.loadMessage?.(chatId, deletedKey.id); } catch {}
+            // Build notification
+            const chatType = chatId.endsWith('@g.us') ? 'Group' : 'DM';
+            const chatName = chatId.split('@')[0];
+            let notification = `🚫 *ANTI-DELETE*\n\n`;
+            notification += `> Chat: ${chatType} (${chatName})\n`;
+            notification += `> Deleted by: ${deleterNum}\n`;
+            notification += `> Time: ${new Date().toLocaleString()}\n`;
+            // Send to owner's DM
+            await sock.sendMessage(ownerJid, { text: notification });
+            // If we have the original message, forward it
+            if (origMsg && origMsg.message) {
+              try { await sock.sendMessage(ownerJid, { forward: origMsg }); }
+              catch { /* forward failed, at least notification was sent */ }
+            } else {
+              await sock.sendMessage(ownerJid, { text: `_Original message not available in store_` });
+            }
+            console.log(`[ANTIDELETE] ${deleterNum} deleted a message in ${chatId}`);
           } catch (e) { console.log('[ANTIDELETE] error:', e.message); }
         }
       }
