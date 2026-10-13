@@ -50,7 +50,8 @@ const modeFile = path.join(sessionDir, 'mode.txt');
 const sudoFile = path.join(sessionDir, 'sudos.txt');
 const settingsFile = path.join(sessionDir, 'settings.json');
 const prefixFile = path.join(sessionDir, 'prefix.txt');
-const menuImageFile = path.join(sessionDir, 'menu-image.jpg');
+const menuImageFile = path.join(sessionDir, 'menu-image.png');
+const menuVideoFile = path.join(sessionDir, 'menu-video.mp4');
 const autoFile = path.join(sessionDir, 'auto.json');
 
 function getMode() { try { return fs.readFileSync(modeFile, 'utf-8').trim() || 'public'; } catch { return 'public'; } }
@@ -101,13 +102,18 @@ function isSudo(senderJid, participantPn) {
 // === Anti-spam cache ===
 const antiSpamCache = new Map();
 
-// === Menu image cache ===
+// === Menu image/video cache ===
 let menuImageBuffer = null;
+let menuVideoBuffer = null;
+let menuVideoMime = null;
 function loadMenuImage() {
   if (menuImageBuffer) return menuImageBuffer;
-  if (fs.existsSync(menuImageFile)) {
-    try { menuImageBuffer = fs.readFileSync(menuImageFile); return menuImageBuffer; } catch {}
-  }
+  if (fs.existsSync(menuImageFile)) { try { menuImageBuffer = fs.readFileSync(menuImageFile); return menuImageBuffer; } catch {} }
+  return null;
+}
+function loadMenuVideo() {
+  if (menuVideoBuffer) return { buffer: menuVideoBuffer, mime: menuVideoMime };
+  if (fs.existsSync(menuVideoFile)) { try { menuVideoBuffer = fs.readFileSync(menuVideoFile); menuVideoMime = fs.existsSync(path.join(sessionDir, 'menu-video-mime.txt')) ? fs.readFileSync(path.join(sessionDir, 'menu-video-mime.txt'), 'utf-8').trim() : 'video/mp4'; return { buffer: menuVideoBuffer, mime: menuVideoMime }; } catch {} }
   return null;
 }
 
@@ -312,8 +318,12 @@ async function start() {
         const fakeContact = createFakeContact(ownerNumber, ownerName);
         const menuText = buildMenu(pushName);
         const menuImg = loadMenuImage();
+        const menuVid = loadMenuVideo();
         try {
-          if (menuImg) {
+          if (menuVid) {
+            // Send video with menu text as caption (autoplay in WhatsApp)
+            await sock.sendMessage(chatId, { video: menuVid.buffer, caption: menuText, mimetype: menuVid.mime, gifPlayback: true }, { quoted: fakeContact });
+          } else if (menuImg) {
             await sock.sendMessage(chatId, { image: menuImg, caption: menuText }, { quoted: fakeContact });
           } else {
             await sock.sendMessage(chatId, { text: menuText }, { quoted: fakeContact });
@@ -357,7 +367,7 @@ async function start() {
           await sock.sendMessage(chatId, { text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅' }, { quoted: m });
           return;
         }
-        const ownerOnlyCmds = ['alive','owner','mode','addsudo','delsudo','sudolist','tagall','hidetag','promote','demote','kick','add','antilink','antispam','antibadword','antidelete','antimention','antitag','antisticker','autofaketyping','autofakerecording','setmenuimage','setprefix','chatbot','setgeminikey'];
+        const ownerOnlyCmds = ['alive','owner','mode','addsudo','delsudo','sudolist','tagall','hidetag','promote','demote','kick','add','antilink','antispam','antibadword','antidelete','antimention','antitag','antisticker','autofaketyping','autofakerecording','setmenuimage','setmenuvideo','setprefix','chatbot','setgeminikey','vv'];
         if (ownerOnlyCmds.some(c => cmd === `.${c}` || cmd === `!${c}` || cmd === `/${c}` || cmd === `${prefix}${c}`)) {
           await sock.sendMessage(chatId, { text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅' }, { quoted: m });
           return;
@@ -522,6 +532,138 @@ async function start() {
           break;
         }
 
+        // === Set menu video (reply to a video → set as menu video) ===
+        case `${prefix}setmenuvideo`: case '.setmenuvideo': {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          try {
+            if (args[0]?.startsWith('http')) {
+              const axios = require('axios');
+              const res = await axios.get(args[0], { responseType: 'arraybuffer', timeout: 60000 });
+              fs.writeFileSync(menuVideoFile, Buffer.from(res.data));
+              fs.writeFileSync(path.join(sessionDir, 'menu-video-mime.txt'), 'video/mp4');
+              menuVideoBuffer = null;
+              await sock.sendMessage(chatId, { text: '✅ Menu video set from URL' }, { quoted: m });
+            } else if (msg.videoMessage) {
+              const buf = await downloadMediaMessage(m, 'buffer', {}, { logger: P({ level: 'silent' }) });
+              fs.writeFileSync(menuVideoFile, Buffer.from(buf));
+              fs.writeFileSync(path.join(sessionDir, 'menu-video-mime.txt'), msg.videoMessage.mimetype || 'video/mp4');
+              menuVideoBuffer = null;
+              await sock.sendMessage(chatId, { text: '✅ Menu video set from sent video' }, { quoted: m });
+            } else if (msg.extendedTextMessage?.contextInfo?.quotedMessage?.videoMessage) {
+              const quoted = msg.extendedTextMessage.contextInfo.quotedMessage;
+              const targetMsg = { key: { remoteJid: chatId, id: msg.extendedTextMessage.contextInfo.stanzaId, participant: msg.extendedTextMessage.contextInfo.participant, fromMe: msg.extendedTextMessage.contextInfo.fromMe || false }, message: quoted };
+              const buf = await downloadMediaMessage(targetMsg, 'buffer', {}, { logger: P({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
+              fs.writeFileSync(menuVideoFile, Buffer.from(buf));
+              fs.writeFileSync(path.join(sessionDir, 'menu-video-mime.txt'), quoted.videoMessage.mimetype || 'video/mp4');
+              menuVideoBuffer = null;
+              await sock.sendMessage(chatId, { text: '✅ Menu video set from replied video' }, { quoted: m });
+            } else {
+              await sock.sendMessage(chatId, { text: 'Usage:\n.setmenuvideo <url>\n.setmenuvideo (reply to video)\n.setmenuvideo (send video with caption)' }, { quoted: m });
+            }
+          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+
+        // === .vv — View-once unlock (owner only) ===
+        // Reply to a view-once media with .vv → unlock it, send to owner's DM privately
+        case `${prefix}vv`: case '.vv': {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          try {
+            const quoted = msg.extendedTextMessage?.contextInfo?.quotedMessage;
+            if (!quoted) { await sock.sendMessage(chatId, { text: 'Reply to a view-once media message with .vv' }, { quoted: m }); return; }
+            // Check if it's view-once
+            const isVO = !!(quoted.imageMessage?.viewOnce || quoted.videoMessage?.viewOnce || quoted.audioMessage?.viewOnce ||
+                           quoted.viewOnceMessageV2 || quoted.viewOnceMessage || quoted.viewOnceMessageV2Extension);
+            if (!isVO) { await sock.sendMessage(chatId, { text: 'The replied message is not a view-once media.' }, { quoted: m }); return; }
+            // React with ⏳
+            await sock.sendMessage(chatId, { react: { text: '⏳', key: m.key } });
+            // Reconstruct the message for download
+            const targetMsg = {
+              key: { remoteJid: chatId, id: msg.extendedTextMessage.contextInfo.stanzaId, participant: msg.extendedTextMessage.contextInfo.participant, fromMe: msg.extendedTextMessage.contextInfo.fromMe || false },
+              message: quoted,
+            };
+            const buf = await downloadMediaMessage(targetMsg, 'buffer', {}, { logger: P({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
+            const buffer = Buffer.from(buf);
+            if (!buffer || buffer.length === 0) throw new Error('Empty buffer');
+            // Determine type
+            let mediaType = 'image', mime = 'image/jpeg';
+            if (quoted.videoMessage) { mediaType = 'video'; mime = quoted.videoMessage.mimetype || 'video/mp4'; }
+            else if (quoted.audioMessage) { mediaType = 'audio'; mime = quoted.audioMessage.mimetype || 'audio/mpeg'; }
+            else if (quoted.imageMessage) { mediaType = 'image'; mime = quoted.imageMessage.mimetype || 'image/jpeg'; }
+            else if (quoted.viewOnceMessageV2?.message?.imageMessage) { mediaType = 'image'; mime = quoted.viewOnceMessageV2.message.imageMessage.mimetype || 'image/jpeg'; }
+            else if (quoted.viewOnceMessageV2?.message?.videoMessage) { mediaType = 'video'; mime = quoted.viewOnceMessageV2.message.videoMessage.mimetype || 'video/mp4'; }
+            // Send to owner's DM
+            const caption = `🔓 *View-once unlocked by Snuggle X*\n_Type: ${mediaType}_\n_Size: ${(buffer.length / 1024).toFixed(1)} KB_`;
+            if (mediaType === 'video') { await sock.sendMessage(ownerJid, { video: buffer, caption, mimetype: mime }); }
+            else if (mediaType === 'audio') { await sock.sendMessage(ownerJid, { audio: buffer, mimetype: mime }); }
+            else { await sock.sendMessage(ownerJid, { image: buffer, caption, mimetype: mime }); }
+            // React ✅ on success
+            await sock.sendMessage(chatId, { react: { text: '✅', key: m.key } });
+            console.log(`[VV] Unlocked ${mediaType} sent to owner DM`);
+          } catch (e) {
+            console.error('[VV] failed:', e.message);
+            await sock.sendMessage(chatId, { react: { text: '❌', key: m.key } });
+            await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m });
+          }
+          break;
+        }
+
+        // === .song — download from YouTube as MP3 ===
+        case `${prefix}song`: case '.song': {
+          const query = argText;
+          if (!query) { await sock.sendMessage(chatId, { text: 'Usage: .song <song name>\nExample: .song memories maroon 5' }, { quoted: m }); return; }
+          await sock.sendMessage(chatId, { text: `🎵 Searching for: ${query}...` }, { quoted: m });
+          try {
+            const { execSync } = require('child_process');
+            const tmpFile = `/tmp/snuggle-song-${Date.now()}.mp3`;
+            // Use yt-dlp to search + download as MP3
+            const cmd = `yt-dlp --no-playlist --extract-audio --audio-format mp3 --audio-quality 0 -o "${tmpFile}" "ytsearch1:${query.replace(/"/g, '')}" 2>&1`;
+            const output = execSync(cmd, { timeout: 120000, encoding: 'utf-8' });
+            if (!fs.existsSync(tmpFile)) throw new Error('Download failed — song not found');
+            const buffer = fs.readFileSync(tmpFile);
+            // Get video title
+            const titleMatch = output.match(/\[info\] \w+: (.+)/);
+            const title = titleMatch ? titleMatch[1].split(' [')[0] : query;
+            await sock.sendMessage(chatId, {
+              audio: buffer,
+              mimetype: 'audio/mpeg',
+              fileName: `${title}.mp3`,
+              caption: `🎵 *${title}*\n_Downloaded by Snuggle X_`,
+            }, { quoted: m });
+            fs.unlinkSync(tmpFile);
+            console.log(`[SONG] Sent: ${title}`);
+          } catch (e) { await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+
+        // === .video — download from YouTube as MP4 ===
+        case `${prefix}video`: case '.video': {
+          const query = argText;
+          if (!query) { await sock.sendMessage(chatId, { text: 'Usage: .video <video name>\nExample: .video funny cat compilation' }, { quoted: m }); return; }
+          await sock.sendMessage(chatId, { text: `🎬 Searching for: ${query}...` }, { quoted: m });
+          try {
+            const { execSync } = require('child_process');
+            const tmpFile = `/tmp/snuggle-video-${Date.now()}.mp4`;
+            // Use yt-dlp to search + download as MP4 (max 50MB)
+            const cmd = `yt-dlp --no-playlist -f "best[ext=mp4][filesize<50M]/best[ext=mp4]/best" -o "${tmpFile}" "ytsearch1:${query.replace(/"/g, '')}" 2>&1`;
+            const output = execSync(cmd, { timeout: 180000, encoding: 'utf-8' });
+            if (!fs.existsSync(tmpFile)) throw new Error('Download failed — video not found or too large');
+            const buffer = fs.readFileSync(tmpFile);
+            if (buffer.length > 60 * 1024 * 1024) { fs.unlinkSync(tmpFile); throw new Error('Video too large (>60MB)'); }
+            const titleMatch = output.match(/\[info\] \w+: (.+)/);
+            const title = titleMatch ? titleMatch[1].split(' [')[0] : query;
+            await sock.sendMessage(chatId, {
+              video: buffer,
+              mimetype: 'video/mp4',
+              fileName: `${title}.mp4`,
+              caption: `🎬 *${title}*\n_Size: ${(buffer.length / 1024 / 1024).toFixed(1)} MB_\n_Downloaded by Snuggle X_`,
+            }, { quoted: m });
+            fs.unlinkSync(tmpFile);
+            console.log(`[VIDEO] Sent: ${title}`);
+          } catch (e) { await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+
         // === Set prefix ===
         case `${prefix}setprefix`: case '.setprefix': {
           if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
@@ -641,7 +783,7 @@ async function handleStickerCommand(sock, chatId, m, msg) {
   } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
 }
 
-// === .url command — uploads media to tmpfiles.org ===
+// === .url command — uploads media to catbox.moe (permanent, no expiry) ===
 // Works in two ways:
 //   1. Send media with caption .url
 //   2. Reply to a media message with .url
@@ -658,7 +800,6 @@ async function handleUrlCommand(sock, chatId, m, msg) {
       hasMedia = quoted.imageMessage || quoted.videoMessage || quoted.audioMessage || quoted.documentMessage || quoted.stickerMessage ||
                  quoted.viewOnceMessage?.message?.imageMessage || quoted.viewOnceMessage?.message?.videoMessage;
       if (hasMedia) {
-        // Reconstruct a fake message for downloadMediaMessage
         targetMsg = {
           key: {
             remoteJid: chatId,
@@ -685,20 +826,33 @@ async function handleUrlCommand(sock, chatId, m, msg) {
     if (!buffer || buffer.length === 0) throw new Error('Empty buffer — could not download media');
     let mime = 'application/octet-stream', ext = 'bin';
     const qm = targetMsg.message;
-    if (qm.imageMessage) { mime = qm.imageMessage.mimetype || 'image/jpeg'; ext = mime.split('/')[1] || 'jpg'; }
+    if (qm.imageMessage) { mime = qm.imageMessage.mimetype || 'image/jpeg'; ext = 'png'; } // Always PNG for images
     else if (qm.videoMessage) { mime = qm.videoMessage.mimetype || 'video/mp4'; ext = 'mp4'; }
     else if (qm.audioMessage) { mime = qm.audioMessage.mimetype || 'audio/mpeg'; ext = 'mp3'; }
     else if (qm.documentMessage) { mime = qm.documentMessage.mimetype || 'application/octet-stream'; ext = qm.documentMessage.fileName?.split('.').pop() || 'bin'; }
     else if (qm.stickerMessage) { mime = qm.stickerMessage.mimetype || 'image/webp'; ext = 'webp'; }
+
+    // Upload to catbox.moe (permanent, no expiry, up to 200MB)
     const FormData = require('form-data');
     const axios = require('axios');
     const form = new FormData();
-    form.append('file', buffer, `upload.${ext.replace(/[^a-zA-Z0-9]/g, '').slice(0, 5) || 'bin'}`);
-    const upRes = await axios.post('https://tmpfiles.org/api/v1/upload', form, { headers: form.getHeaders(), maxContentLength: Infinity, maxBodyLength: Infinity, timeout: 60000 });
-    if (upRes.data?.data?.url) {
-      const directUrl = upRes.data.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
-      await sock.sendMessage(chatId, { text: `✅ *Media uploaded!*\n\n🔗 *URL:*\n${directUrl}\n\n_Size: ${(buffer.length / 1024).toFixed(1)} KB_\n_Type: ${mime}_` }, { quoted: m });
-    } else { throw new Error('No URL returned'); }
+    form.append('reqtype', 'fileupload');
+    form.append('fileToUpload', buffer, `upload.${ext}`);
+    const upRes = await axios.post('https://catbox.moe/user/api.php', form, {
+      headers: form.getHeaders(),
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      timeout: 120000,
+    });
+    // catbox returns the URL as plain text (e.g. https://files.catbox.moe/xxxx.png)
+    if (upRes.data && upRes.data.startsWith('https://')) {
+      const directUrl = upRes.data.trim();
+      await sock.sendMessage(chatId, {
+        text: `✅ *Media uploaded!*\n\n🔗 *URL:*\n${directUrl}\n\n_Size: ${(buffer.length / 1024).toFixed(1)} KB_\n_Type: ${mime}_\n_Permanent (no expiry)_`,
+      }, { quoted: m });
+    } else {
+      throw new Error('Upload failed: ' + (upRes.data || 'No URL returned'));
+    }
   } catch (e) { await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m }); }
 }
 
@@ -796,6 +950,19 @@ function buildAllMenu() {
 ┆ ─────────────────────────
 ┆ ${p}sticker ─ Convert media to sticker
 ┆ ${p}url ─ Upload media, get public URL
+┆ ${p}song <query> ─ Download MP3
+┆ ${p}video <query> ─ Download MP4
+┆
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+┆ 🔒 *OWNER-ONLY*
+┆ ─────────────────────────
+┆ ${p}vv ─ Unlock view-once (reply)
+┆ ${p}setmenuimage <url|reply>
+┆ ${p}setmenuvideo <url|reply>
+┆ ${p}setprefix <prefix|none>
+┆ ${p}chatbot on/off ─ AI in DMs
 ┆
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
