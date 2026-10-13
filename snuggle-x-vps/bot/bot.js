@@ -307,7 +307,7 @@ async function start() {
         }
       }
 
-      // === PUBLIC commands ===
+      // === PUBLIC commands (work for everyone) ===
       if (cmd === `${prefix}menu` || cmd === '.menu' || lower === 'menu') {
         const fakeContact = createFakeContact(ownerNumber, ownerName);
         const menuText = buildMenu(pushName);
@@ -341,19 +341,28 @@ async function start() {
         await sock.sendMessage(chatId, { text: `*You are* ${pushName}\n*Number:* ${senderNumber}\n*Status:* ${ownerCheck ? 'Owner 👑' : sudoCheck ? 'Sudo 🔑' : 'User'}` }, { quoted: m });
         return;
       }
+      // Sticker and URL are PUBLIC — anyone can use them
+      if (cmd === `${prefix}sticker` || cmd === '.sticker') {
+        await handleStickerCommand(sock, chatId, m, msg);
+        return;
+      }
+      if (cmd === `${prefix}url` || cmd === '.url') {
+        await handleUrlCommand(sock, chatId, m, msg);
+        return;
+      }
 
-      // === ACCESS GATE ===
+      // === ACCESS GATE — owner/sudo only beyond this point ===
       if (!ownerCheck && !sudoCheck) {
         if (mode === 'private' || mode === 'silent') {
           await sock.sendMessage(chatId, { text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅' }, { quoted: m });
           return;
         }
-        const ownerOnlyCmds = ['alive','owner','mode','addsudo','delsudo','sudolist','tagall','hidetag','promote','demote','kick','add','antilink','antispam','antibadword','antidelete','antimention','antitag','antisticker','autofaketyping','autofakerecording','setmenuimage','setprefix'];
-        if (ownerOnlyCmds.some(c => cmd === `.${c}` || cmd === `!${c}` || cmd === `/${c}`)) {
+        const ownerOnlyCmds = ['alive','owner','mode','addsudo','delsudo','sudolist','tagall','hidetag','promote','demote','kick','add','antilink','antispam','antibadword','antidelete','antimention','antitag','antisticker','autofaketyping','autofakerecording','setmenuimage','setprefix','chatbot','setgeminikey'];
+        if (ownerOnlyCmds.some(c => cmd === `.${c}` || cmd === `!${c}` || cmd === `/${c}` || cmd === `${prefix}${c}`)) {
           await sock.sendMessage(chatId, { text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅' }, { quoted: m });
           return;
         }
-        if (cmd.startsWith('.') || cmd.startsWith('!') || cmd.startsWith('/')) {
+        if (cmd.startsWith('.') || cmd.startsWith('!') || cmd.startsWith('/') || (prefix && cmd.startsWith(prefix))) {
           await sock.sendMessage(chatId, { text: `Unknown command: ${cmd}\nType *${prefix}menu* to see the menu.` }, { quoted: m });
         }
         return;
@@ -482,16 +491,32 @@ async function start() {
               const axios = require('axios');
               const res = await axios.get(args[0], { responseType: 'arraybuffer', timeout: 30000 });
               fs.writeFileSync(menuImageFile, Buffer.from(res.data));
-              menuImageBuffer = null; // Force reload
+              menuImageBuffer = null;
               await sock.sendMessage(chatId, { text: '✅ Menu image set from URL' }, { quoted: m });
             } else if (msg.imageMessage) {
-              // Reply to an image
+              // This message has an image (sent with caption .setmenuimage)
               const buf = await downloadMediaMessage(m, 'buffer', {}, { logger: P({ level: 'silent' }) });
+              fs.writeFileSync(menuImageFile, Buffer.from(buf));
+              menuImageBuffer = null;
+              await sock.sendMessage(chatId, { text: '✅ Menu image set from sent image' }, { quoted: m });
+            } else if (msg.extendedTextMessage?.contextInfo?.quotedMessage?.imageMessage) {
+              // Reply to an image message
+              const quoted = msg.extendedTextMessage.contextInfo.quotedMessage;
+              const targetMsg = {
+                key: {
+                  remoteJid: chatId,
+                  id: msg.extendedTextMessage.contextInfo.stanzaId,
+                  participant: msg.extendedTextMessage.contextInfo.participant,
+                  fromMe: msg.extendedTextMessage.contextInfo.fromMe || false,
+                },
+                message: quoted,
+              };
+              const buf = await downloadMediaMessage(targetMsg, 'buffer', {}, { logger: P({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
               fs.writeFileSync(menuImageFile, Buffer.from(buf));
               menuImageBuffer = null;
               await sock.sendMessage(chatId, { text: '✅ Menu image set from replied image' }, { quoted: m });
             } else {
-              await sock.sendMessage(chatId, { text: 'Usage:\n.setmenuimage <url> — set from URL\n.setmenuimage (reply to image) — set from replied image' }, { quoted: m });
+              await sock.sendMessage(chatId, { text: 'Usage:\n.setmenuimage <url> — set from URL\n.setmenuimage (reply to image) — set from replied image\n.setmenuimage (send image with caption) — set from sent image' }, { quoted: m });
             }
           } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
           break;
@@ -527,18 +552,10 @@ async function start() {
           break;
         }
 
-        // === Media commands ===
-        case `${prefix}sticker`: case '.sticker': {
-          if (msg.imageMessage || msg.videoMessage || msg.viewOnceMessage?.message?.imageMessage || msg.viewOnceMessage?.message?.videoMessage) {
-            try { const buf = await downloadMediaMessage(m, 'buffer', {}, { logger: P({ level: 'silent' }) }); await sock.sendMessage(chatId, { sticker: Buffer.from(buf) }, { quoted: m }); }
-            catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
-          } else { await sock.sendMessage(chatId, { text: 'Send an image/video with caption .sticker' }, { quoted: m }); }
-          break;
-        }
-        case `${prefix}url`: case '.url': { await handleUrlCommand(sock, chatId, m, msg); break; }
+        // === Media commands are PUBLIC (handled above) ===
 
         default:
-          if (cmd.startsWith('.') || cmd.startsWith('!') || cmd.startsWith('/')) {
+          if (cmd.startsWith('.') || cmd.startsWith('!') || cmd.startsWith('/') || (prefix && cmd.startsWith(prefix))) {
             await sock.sendMessage(chatId, { text: `Unknown command: ${cmd}\nType *${prefix}menu* or *${prefix}all* for the list.` }, { quoted: m });
           }
       }
@@ -593,6 +610,35 @@ async function toggleAnti(sock, chatId, m, args, key, label) {
   else if (sub === 'on') { gs[key] = 'delete'; s[chatId] = gs; saveSettings(s); await sock.sendMessage(chatId, { text: `✅ Anti-${label} ON (default: delete)\nUse: .${key} delete/warn/kick on` }, { quoted: m }); }
   else if (sub === 'off') { gs[key] = 'off'; s[chatId] = gs; saveSettings(s); await sock.sendMessage(chatId, { text: `❌ Anti-${label} OFF` }, { quoted: m }); }
   else { await sock.sendMessage(chatId, { text: `*Anti-${label}:* ${gs[key] || 'off'}\n\nUsage:\n.${key} delete on\n.${key} warn on\n.${key} kick on\n.${key} off` }, { quoted: m }); }
+}
+
+// === .sticker command — convert image/video to sticker ===
+// Works by sending media with caption .sticker OR replying to media with .sticker
+async function handleStickerCommand(sock, chatId, m, msg) {
+  let hasMedia = msg.imageMessage || msg.videoMessage || msg.viewOnceMessage?.message?.imageMessage || msg.viewOnceMessage?.message?.videoMessage;
+  let targetMsg = m;
+  if (!hasMedia) {
+    const quoted = msg.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (quoted) {
+      hasMedia = quoted.imageMessage || quoted.videoMessage || quoted.viewOnceMessage?.message?.imageMessage || quoted.viewOnceMessage?.message?.videoMessage;
+      if (hasMedia) {
+        targetMsg = {
+          key: {
+            remoteJid: chatId,
+            id: msg.extendedTextMessage.contextInfo.stanzaId,
+            participant: msg.extendedTextMessage.contextInfo.participant,
+            fromMe: msg.extendedTextMessage.contextInfo.fromMe || false,
+          },
+          message: quoted,
+        };
+      }
+    }
+  }
+  if (!hasMedia) { await sock.sendMessage(chatId, { text: 'Send an image/video with caption .sticker, or reply to a media message with .sticker' }, { quoted: m }); return; }
+  try {
+    const buf = await downloadMediaMessage(targetMsg, 'buffer', {}, { logger: P({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
+    await sock.sendMessage(chatId, { sticker: Buffer.from(buf) }, { quoted: m });
+  } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
 }
 
 // === .url command — uploads media to tmpfiles.org ===
@@ -684,56 +730,77 @@ function buildMenu(pushName) {
 function buildAllMenu() {
   const prefix = getPrefix();
   const p = prefix === '' ? '' : prefix;
-  return `╭═══════════════════════✦═╗
-║   *SNUGGLE X • FULL COMMANDS*   ║
-╚═══════════════════════✦═╝
+  return `╔════════════════════════════╗
+║   ◈ *SNUGGLE X COMMANDS* ◈   ║
+║   _Developed by yobby_mking_   ║
+╚════════════════════════════╝
 
-╭─ ❲ 🌐 PUBLIC ❳
-├ ${p}menu — show main menu
-├ ${p}all — show full command list
-├ ${p}ping — latency check
-├ ${p}help — quick help
-├ ${p}whoami — your info
-╰────────────────────
+╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+┆ 🌐 *PUBLIC COMMANDS*
+┆ ─────────────────────────
+┆ ${p}menu ─ Main menu + contact card
+┆ ${p}all ─ This full command list
+┆ ${p}ping ─ Latency check
+┆ ${p}help ─ Quick help
+┆ ${p}whoami ─ Your session info
+┆ ${p}sticker ─ Image/video → sticker
+┆ ${p}url ─ Upload media → get URL
+┆
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭─ ❲ 👑 OWNER ❳
-├ ${p}alive — bot status
-├ ${p}owner — owner info
-├ ${p}mode — show/change mode
-├ ${p}addsudo/delsudo/sudolist
-├ ${p}autofaketyping all on/off
-├ ${p}autofakerecording all on/off
-├ ${p}setmenuimage <url|reply>
-├ ${p}setprefix <prefix|none>
-├ ${p}chatbot on/off — AI replies to DMs
-├ ${p}setgeminikey <key> — set Gemini API key
-╰────────────────────
+╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+┆ 👑 *OWNER COMMANDS*
+┆ ─────────────────────────
+┆ ${p}alive ─ Bot status
+┆ ${p}owner ─ Owner info
+┆ ${p}mode ─ Show/change mode
+┆ ${p}addsudo <num> ─ Add sudo
+┆ ${p}delsudo <num> ─ Remove sudo
+┆ ${p}sudolist ─ List sudo users
+┆ ${p}autofaketyping all on/off
+┆ ${p}autofakerecording all on/off
+┆ ${p}setmenuimage <url|reply>
+┆ ${p}setprefix <prefix|none>
+┆ ${p}chatbot on/off ─ AI in DMs
+┆
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭─ ❲ 👥 GROUP ❳
-├ ${p}tagall — tag everyone
-├ ${p}hidetag <text> — hidden tag
-├ ${p}promote/demote/kick @user
-├ ${p}add <number>
-╰────────────────────
+╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+┆ 👥 *GROUP COMMANDS*
+┆ ─────────────────────────
+┆ ${p}tagall ─ Tag all members
+┆ ${p}hidetag <text> ─ Silent tag
+┆ ${p}promote @user ─ Make admin
+┆ ${p}demote @user ─ Remove admin
+┆ ${p}kick @user ─ Remove member
+┆ ${p}add <number> ─ Add member
+┆
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭─ ❲ 🛡 ANTI ❳
-├ ${p}antilink delete/warn/kick on
-├ ${p}antispam delete/warn/kick on
-├ ${p}antibadword delete/warn/kick on
-├ ${p}antidelete on/off
-├ ${p}antimention delete/warn/kick on
-├ ${p}antitag delete/warn/kick on
-├ ${p}antisticker delete/warn/kick on
-├ (use "off" to turn off any)
-╰────────────────────
+╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+┆ 🛡 *ANTI COMMANDS*
+┆ ─────────────────────────
+┆ ${p}antilink delete/warn/kick on
+┆ ${p}antispam delete/warn/kick on
+┆ ${p}antibadword delete/warn/kick on
+┆ ${p}antidelete on/off
+┆ ${p}antimention delete/warn/kick on
+┆ ${p}antitag delete/warn/kick on
+┆ ${p}antisticker delete/warn/kick on
+┆ ─ Use "off" to disable any
+┆
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭─ ❲ 🎨 MEDIA ❳
-├ ${p}sticker — image/video to sticker
-├ ${p}url — upload media, get URL
-╰────────────────────
+╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+┆ 🎨 *MEDIA COMMANDS*
+┆ ─────────────────────────
+┆ ${p}sticker ─ Convert media to sticker
+┆ ${p}url ─ Upload media, get public URL
+┆
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*SNUGGLE X* · Created by Yobby King
-> Instagram @yobby_mking
+> *SNUGGLE X* · Created by Yobby King
+> Instagram: @yobby_mking
 > Dev: 0795314221 / 0181163563`;
 }
 
