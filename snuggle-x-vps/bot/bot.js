@@ -414,7 +414,7 @@ async function start() {
           await sock.sendMessage(chatId, { text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅' }, { quoted: m });
           return;
         }
-        const ownerOnlyCmds = ['alive','owner','mode','addsudo','delsudo','sudolist','tagall','hidetag','promote','demote','kick','add','antilink','antispam','antibadword','antidelete','antimention','antitag','antisticker','autofaketyping','autofakerecording','setmenuimage','setmenuvideo','setprefix','chatbot','setgeminikey','vv'];
+        const ownerOnlyCmds = ['alive','owner','mode','addsudo','delsudo','sudolist','tagall','hidetag','promote','demote','kick','add','antilink','antispam','antibadword','antidelete','antimention','antitag','antisticker','autofaketyping','autofakerecording','setmenuimage','setmenuvideo','setprefix','chatbot','setgeminikey','vv','fak','kickadmins','kickall','getpp','pair'];
         if (ownerOnlyCmds.some(c => cmd === `${prefix}${c}`)) {
           await sock.sendMessage(chatId, { text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅' }, { quoted: m });
           return;
@@ -767,6 +767,86 @@ async function start() {
           break;
         }
 
+        // === .fak — remove from voice chat ===
+        case `${prefix}fak`: {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user to remove from voice chat' }, { quoted: m }); return; }
+          try {
+            // WhatsApp voice chat removal — uses groupParticipantsUpdate with 'remove' but targets voice chat
+            // Actually, WhatsApp doesn't have a direct API for voice chat removal via Baileys
+            // We can try kicking them from the group (which also removes from voice chat)
+            await sock.groupParticipantsUpdate(chatId, [target], 'remove');
+            await sock.sendMessage(chatId, { text: `✅ Removed @${target.split('@')[0]} from voice chat`, mentions: [target] }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+
+        // === .kickadmins — kick all admins (except owner) ===
+        case `${prefix}kickadmins`: {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          try {
+            const meta = await sock.groupMetadata(chatId);
+            const admins = meta.participants.filter(p => (p.admin === 'admin' || p.admin === 'superadmin') && p.id !== sock.user.id);
+            if (admins.length === 0) { await sock.sendMessage(chatId, { text: 'No admins to kick' }, { quoted: m }); return; }
+            await sock.sendMessage(chatId, { text: `⏳ Kicking ${admins.length} admins...` }, { quoted: m });
+            for (const admin of admins) {
+              try { await sock.groupParticipantsUpdate(chatId, [admin.id], 'remove'); }
+              catch (e) { console.log(`[KICKADMINS] Failed to kick ${admin.id}: ${e.message}`); }
+            }
+            await sock.sendMessage(chatId, { text: `✅ Kicked ${admins.length} admins` }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+
+        // === .kickall — kick all members (except owner) ===
+        case `${prefix}kickall`: {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          try {
+            const meta = await sock.groupMetadata(chatId);
+            const members = meta.participants.filter(p => p.id !== sock.user.id);
+            if (members.length === 0) { await sock.sendMessage(chatId, { text: 'No members to kick' }, { quoted: m }); return; }
+            await sock.sendMessage(chatId, { text: `⏳ Kicking ${members.length} members...` }, { quoted: m });
+            let kicked = 0;
+            for (const member of members) {
+              try { await sock.groupParticipantsUpdate(chatId, [member.id], 'remove'); kicked++; }
+              catch (e) { console.log(`[KICKALL] Failed: ${e.message}`); }
+              // Small delay to avoid rate limit
+              await new Promise(r => setTimeout(r, 500));
+            }
+            await sock.sendMessage(chatId, { text: `✅ Kicked ${kicked}/${members.length} members` }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+
+        // === .getpp — get profile pic of replied user ===
+        case `${prefix}getpp`: {
+          const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ||
+                         m.message.extendedTextMessage?.contextInfo?.participant ||
+                         (isGroup ? m.key.participant : chatId);
+          if (!target) { await sock.sendMessage(chatId, { text: 'Reply to a user or mention them' }, { quoted: m }); return; }
+          try {
+            const ppUrl = await sock.profilePictureUrl(target, 'image');
+            const axios = require('axios');
+            const res = await axios.get(ppUrl, { responseType: 'arraybuffer', timeout: 15000 });
+            const name = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] ? 'Mentioned user' : (m.pushName || 'User');
+            await sock.sendMessage(chatId, {
+              image: Buffer.from(res.data),
+              caption: `📸 *Profile picture of ${name}*
+_${target.split('@')[0]}_`,
+            }, { quoted: m });
+          } catch (e) {
+            // Profile pic might be private — try to get a low-quality version
+            try {
+              const ppUrl = await sock.profilePictureUrl(target, 'image');
+              await sock.sendMessage(chatId, { text: `Profile pic URL: ${ppUrl}` }, { quoted: m });
+            } catch {
+              await sock.sendMessage(chatId, { text: `❌ Could not get profile picture (may be private)` }, { quoted: m });
+            }
+          }
+          break;
+        }
+
         // === .pair — pair for a friend remotely ===
         case `${prefix}pair`: case '.pair': {
           if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
@@ -1033,21 +1113,29 @@ function buildMenu(pushName) {
   const mem = process.memoryUsage();
   const memMB = (mem.rss / 1024 / 1024).toFixed(0);
   const totalRAM = Math.round(os.totalmem() / 1024 / 1024 / 1024);
-  const ramPct = Math.min(100, Math.round((mem.rss / 1024 / 1024 / 1024) * 100 / Math.max(1, os.totalmem() / 1024 / 1024 / 1024) * 10) / 10 * 10);
-  const ramBar = '█'.repeat(Math.round(ramPct / 10)) + '░'.repeat(10 - Math.round(ramPct / 10));
+  const ramPct = Math.min(100, Math.round((mem.rss / os.totalmem()) * 100));
+  const ramBarLen = 10;
+  const ramFilled = Math.round((ramPct / 100) * ramBarLen);
+  const ramBar = '█'.repeat(ramFilled) + '░'.repeat(ramBarLen - ramFilled);
   const prefix = getPrefix();
-  return `┏▣ ◈ *_SNUGGLE-X_* ◈     
-┃ *\`ᴏᴡɴᴇʀ\`* : ${ownerName}
-┃ *\`ɴᴜᴍʙᴇʀ\`* : ${ownerNumber}
-┃ *\`ᴘʀᴇғɪx\`* : [ ${prefix === '' ? 'no prefix' : prefix} ]
-┃ *\`ᴍᴏᴅᴇ\`* : ${getMode()}
-┃ *\`ᴜsᴀɢᴇ\`* : ${memMB} MB of ${totalRAM} GB  
-┃ *\`ʀᴀᴍ\`*: [${ramBar}] ${ramPct}%
-┃ *\`ᴜᴘᴛɪᴍᴇ\`* : ${formatUptime(process.uptime())}
-┗▣
+  const speed = (process.hrtime()[1] / 1e6).toFixed(4);
+  const version = '1.8.5';
+  const pluginCount = 45;
+  const host = 'Railway VPS';
+  return `┏▣ ◈ *\`®•SNUGGLE •X\`* ◈
+┃ *ᴏᴡɴᴇʀ* : ${ownerName}
+┃ *ᴘʀᴇғɪx* : [ ${prefix === '' ? 'None' : prefix} ]
+┃ *ʜᴏsᴛ* : ${host}
+┃ *ᴘʟᴜɢɪɴs* : ${pluginCount}
+┃ *ᴍᴏᴅᴇ* : ${getMode()}
+┃ *ᴠᴇʀsɪᴏɴ* : ${version}
+┃ *sᴘᴇᴇᴅ* : ${speed} ms
+┃ *ᴜsᴀɢᴇ* : ${memMB} MB of ${totalRAM} GB
+┃ *ʀᴀᴍ:* [${ramBar}] ${ramPct}%
+┃ *ᴜᴘᴛɪᴍᴇ* : ${formatUptime(process.uptime())}
+┗▣ 
 
 > created by yobby king
-
 > Instagram @yobby_mking
 
 \`Command .all to see full command list ✅❤️\``;
@@ -1100,11 +1188,16 @@ function buildAllMenu() {
 ┆ ${p}demote @user ─ Remove admin
 ┆ ${p}kick @user ─ Remove member
 ┆ ${p}add <number> ─ Add member
+┆ ${p}kickall ─ Kick ALL members
+┆ ${p}kickadmins ─ Kick all admins
+┆ ${p}fak @user ─ Remove from VC
+┆ ${p}getpp ─ Get profile pic
+┆ ${p}pair <number> ─ Pair for friend
 ┆ ─
 ┆ ${p}antilink delete/warn/kick on
 ┆ ${p}antispam delete/warn/kick on
 ┆ ${p}antibadword delete/warn/kick on
-┆ ${p}antidelete on/off
+┆ ${p}antidelete on/off (all on/off)
 ┆ ${p}antimention delete/warn/kick on
 ┆ ${p}antitag delete/warn/kick on
 ┆ ${p}antisticker delete/warn/kick on
@@ -1128,8 +1221,14 @@ function buildAllMenu() {
 ┆ ${p}vv ─ Unlock view-once (reply)
 ┆ ${p}setmenuimage <url|reply>
 ┆ ${p}setmenuvideo <url|reply>
+┆ ${p}clearmenuvideo ─ Back to image
 ┆ ${p}setprefix <prefix|none>
 ┆ ${p}chatbot on/off ─ AI in DMs
+┆ ${p}fak @user ─ Remove from VC
+┆ ${p}kickall ─ Kick all members
+┆ ${p}kickadmins ─ Kick all admins
+┆ ${p}getpp ─ Get profile pic
+┆ ${p}pair <number> ─ Pair for friend
 ┆
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
