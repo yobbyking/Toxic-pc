@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const P = require('pino');
+const { createFakeContact } = require('./createFakeContact');
 
 // === Config ===
 const sessionDir = process.argv[2];
@@ -313,7 +314,22 @@ async function start() {
 
       // === PUBLIC commands (.menu, .all) — work for everyone ===
       if (cmd === '.menu' || cmd === '.m' || cmd === '!menu' || cmd === '/menu' || lower === 'menu') {
-        await sock.sendMessage(chatId, { text: buildMenu(pushName) }, { quoted: m });
+        // Send menu as a contact card with the menu text as caption
+        // The contact card shows the OWNER's info — users can tap "Save" to add the owner
+        const fakeContact = createFakeContact(ownerNumber, ownerName);
+        const menuText = buildMenu(pushName);
+        try {
+          await sock.sendMessage(chatId, {
+            contacts: {
+              displayName: ownerName && ownerName !== 'Not Set!' ? ownerName : 'Yobby King',
+              contacts: [{ vcard: fakeContact.message.contactMessage.vcard }],
+            },
+          }, { quoted: m });
+        } catch (e) {
+          console.error('Contact card send failed:', e.message);
+        }
+        // Send the menu text right after the contact card
+        await sock.sendMessage(chatId, { text: menuText }, { quoted: fakeContact });
         return;
       }
       if (cmd === '.all' || cmd === '!all' || cmd === '/all' || lower === 'all') {
