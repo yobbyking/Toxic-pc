@@ -172,7 +172,7 @@ async function start() {
       if (isStarting) {
         isStarting = false;
         setTimeout(() => {
-          try { sock.sendMessage(ownerJid, { text: '*`SNUGGLE X BOT IS NOW LIVE ✅`*\n> snuggle x bot\n\nType *.menu* to see commands.\nType *.all* to see the full command list.' }); }
+          try { sock.sendMessage(ownerJid.split(':')[0] + '@s.whatsapp.net', { text: '*`SNUGGLE X BOT IS NOW LIVE ✅`*\n> snuggle x bot\n\nType *.menu* to see commands.\nType *.all* to see the full command list.' }); }
           catch (e) { console.error('[LIVE] send failed:', e.message); }
         }, 3000);
       }
@@ -656,12 +656,12 @@ async function start() {
             else if (quoted.imageMessage) { mediaType = 'image'; mime = quoted.imageMessage.mimetype || 'image/jpeg'; }
             else if (quoted.viewOnceMessageV2?.message?.imageMessage) { mediaType = 'image'; mime = quoted.viewOnceMessageV2.message.imageMessage.mimetype || 'image/jpeg'; }
             else if (quoted.viewOnceMessageV2?.message?.videoMessage) { mediaType = 'video'; mime = quoted.viewOnceMessageV2.message.videoMessage.mimetype || 'video/mp4'; }
-            // Send to owner's DM (with delay to prevent Waiting for this message)
+            // Send to the SAME chat where .vv was used (prevents Waiting for this message in DM)
             await new Promise(r => setTimeout(r, 2000));
             const caption = `🔓 *View-once unlocked by Snuggle X*\n_Type: ${mediaType}_\n_Size: ${(buffer.length / 1024).toFixed(1)} KB_`;
-            if (mediaType === 'video') { await sock.sendMessage(ownerJid, { video: buffer, caption, mimetype: mime }); }
-            else if (mediaType === 'audio') { await sock.sendMessage(ownerJid, { audio: buffer, mimetype: mime }); }
-            else { await sock.sendMessage(ownerJid, { image: buffer, caption, mimetype: mime }); }
+            if (mediaType === 'video') { await sock.sendMessage(chatId, { video: buffer, caption, mimetype: mime }, { quoted: m }); }
+            else if (mediaType === 'audio') { await sock.sendMessage(chatId, { audio: buffer, mimetype: mime }, { quoted: m }); }
+            else { await sock.sendMessage(chatId, { image: buffer, caption, mimetype: mime }, { quoted: m }); }
             // React ✅ on success
             await sock.sendMessage(chatId, { react: { text: '✅', key: m.key } });
             console.log(`[VV] Unlocked ${mediaType} sent to owner DM`);
@@ -1082,6 +1082,38 @@ _${target.split('@')[0]}_`,
           break;
         }
 
+                // === .vv2 — unlock view-once and send in same chat ===
+        case `${prefix}vv2`: {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          try {
+            const quoted = msg.extendedTextMessage?.contextInfo?.quotedMessage;
+            if (!quoted) { await sock.sendMessage(chatId, { text: 'Reply to a view-once media with .vv2' }, { quoted: m }); return; }
+            const isVO = !!(quoted.imageMessage?.viewOnce || quoted.videoMessage?.viewOnce || quoted.audioMessage?.viewOnce || quoted.viewOnceMessageV2 || quoted.viewOnceMessage);
+            if (!isVO) { await sock.sendMessage(chatId, { text: 'Not a view-once media.' }, { quoted: m }); return; }
+            await sock.sendMessage(chatId, { react: { text: '⏳', key: m.key } });
+            const targetMsg = { key: { remoteJid: chatId, id: msg.extendedTextMessage.contextInfo.stanzaId, participant: msg.extendedTextMessage.contextInfo.participant, fromMe: msg.extendedTextMessage.contextInfo.fromMe || false }, message: quoted };
+            const buf = await downloadMediaMessage(targetMsg, 'buffer', {}, { logger: P({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
+            const buffer = Buffer.from(buf);
+            if (!buffer || buffer.length === 0) throw new Error('Empty buffer');
+            let mediaType = 'image', mime = 'image/jpeg';
+            if (quoted.videoMessage) { mediaType = 'video'; mime = quoted.videoMessage.mimetype || 'video/mp4'; }
+            else if (quoted.audioMessage) { mediaType = 'audio'; mime = quoted.audioMessage.mimetype || 'audio/mpeg'; }
+            else if (quoted.imageMessage) { mediaType = 'image'; mime = quoted.imageMessage.mimetype || 'image/jpeg'; }
+            await new Promise(r => setTimeout(r, 2000));
+            const cap = `🔓 *Unlocked by Snuggle X*\n_Type: ${mediaType}_\n_Size: ${(buffer.length/1024).toFixed(1)} KB_`;
+            if (mediaType === 'video') { await sock.sendMessage(chatId, { video: buffer, caption: cap, mimetype: mime }, { quoted: m }); }
+            else if (mediaType === 'audio') { await sock.sendMessage(chatId, { audio: buffer, mimetype: mime }, { quoted: m }); }
+            else { await sock.sendMessage(chatId, { image: buffer, caption: cap, mimetype: mime }, { quoted: m }); }
+            await sock.sendMessage(chatId, { react: { text: '✅', key: m.key } });
+            console.log('[VV2] Unlocked and sent in same chat');
+          } catch (e) {
+            console.error('[VV2] failed:', e.message);
+            await sock.sendMessage(chatId, { react: { text: '❌', key: m.key } });
+            await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m });
+          }
+          break;
+        }
+
         // === .pair — pair for a friend remotely ===
         case `${prefix}pair`: case '.pair': {
           if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
@@ -1204,13 +1236,13 @@ _${target.split('@')[0]}_`,
             notification += `> Deleted by: ${deleterNum}\n`;
             notification += `> Time: ${new Date().toLocaleString()}\n`;
             // Send to owner's DM
-            await sock.sendMessage(ownerJid, { text: notification });
+            await sock.sendMessage(ownerJid.split(':')[0] + '@s.whatsapp.net', { text: notification });
             // If we have the original message, forward it
             if (origMsg && origMsg.message) {
-              try { await sock.sendMessage(ownerJid, { forward: origMsg }); }
+              try { await sock.sendMessage(ownerJid.split(':')[0] + '@s.whatsapp.net', { forward: origMsg }); }
               catch { /* forward failed, at least notification was sent */ }
             } else {
-              await sock.sendMessage(ownerJid, { text: `_Original message not available in store_` });
+              await sock.sendMessage(ownerJid.split(':')[0] + '@s.whatsapp.net', { text: `_Original message not available in store_` });
             }
             console.log(`[ANTIDELETE] ${deleterNum} deleted a message in ${chatId}`);
           } catch (e) { console.log('[ANTIDELETE] error:', e.message); }
