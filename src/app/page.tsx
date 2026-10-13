@@ -1,278 +1,295 @@
 "use client";
 
-import Link from "next/link";
-import { useAuth } from "@/lib/auth-context";
-import {
-  Sparkles, Zap, Wallet, ArrowRight, Users, Shield, Trophy,
-  TrendingUp, Star, CheckCircle2, Crown, Flame, Target,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { useState, useEffect, useRef } from "react";
+import { io, Socket } from "socket.io-client";
 
-const TIERS = [
-  {
-    name: 'Silver', icon: Trophy, badge: 'STARTER',
-    reward: 'KES 30 – 80', fee: 199,
-    perks: ['Consumer Surveys', 'Product Feedback', 'Data Entry'],
-    glow: 'from-slate-500/20 to-slate-700/5',
-    border: 'border-slate-500/20',
-    iconColor: 'text-slate-300',
-    badgeClass: 'bg-slate-500/15 text-slate-300 border-slate-500/30',
-  },
-  {
-    name: 'Gold', icon: Crown, badge: 'POPULAR',
-    reward: 'KES 100 – 250', fee: 299,
-    perks: ['All Silver +', 'Business Surveys', 'Market Research', 'Brand Reviews'],
-    glow: 'from-amber-500/30 to-orange-500/10',
-    border: 'border-amber-500/40',
-    iconColor: 'text-amber-400',
-    badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  },
-  {
-    name: 'VIP', icon: Sparkles, badge: 'PREMIUM',
-    reward: 'KES 300 – 800', fee: 399,
-    perks: ['All Gold +', 'Strategic Analysis', 'Premium Surveys', 'Priority Access'],
-    glow: 'from-violet-500/30 to-purple-500/10',
-    border: 'border-violet-500/40',
-    iconColor: 'text-violet-400',
-    badgeClass: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
-  },
-];
+export default function KaylaChat() {
+  const [username, setUsername] = useState("");
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [input, setInput] = useState("");
+  const [partnerOnline, setPartnerOnline] = useState(false);
+  const [partnerTyping, setPartnerTyping] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const socketRef = useRef<Socket | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const typingTimeoutRef = useRef<any>(null);
 
-export default function Home() {
-  const { appUser, signOut } = useAuth();
-  const dashboardHref = appUser ? (appUser.isActivated ? '/dashboard' : '/auth/activate') : '/auth/login';
+  // Determine who I am and who the partner is
+  const myName = username.toLowerCase().trim();
+  const isKayla = myName === "kayla";
+  // Kayla = boy, yobby = girl
+  // boy.png on girl's side, girl.png on boy's side
+  const partnerImage = isKayla ? "/girl.png" : "/boy.png";
+  const myAvatar = isKayla ? "👨" : "👩";
+  const partnerName = isKayla ? "Yobby 💕" : "Kayla 💕";
+  const partnerAvatar = isKayla ? "👩" : "👨";
 
-  return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden">
-      {/* Animated background orbs */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-[-10%] left-[-10%] w-[600px] h-[600px] bg-amber-500/8 rounded-full blur-[120px] animate-pulse" style={{ animationDuration: '4s' }} />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-orange-500/8 rounded-full blur-[120px] animate-pulse" style={{ animationDuration: '6s' }} />
-        <div className="absolute top-[40%] left-[50%] w-[400px] h-[400px] bg-violet-500/5 rounded-full blur-[100px] animate-pulse" style={{ animationDuration: '8s' }} />
-      </div>
+  useEffect(() => {
+    if (!loggedIn) return;
 
-      {/* Header */}
-      <header className="sticky top-0 z-30 glass border-b border-white/5">
-        <div className="container mx-auto max-w-6xl px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 via-orange-500 to-red-500 flex items-center justify-center font-black text-slate-950 text-lg shadow-lg shadow-amber-500/40">
-              Q
-              <div className="absolute -inset-0.5 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 opacity-30 blur-sm" />
-            </div>
-            <span className="text-lg font-bold tracking-tight">QuickCash</span>
-            <Badge className="ml-2 bg-amber-500/15 text-amber-300 border-amber-500/30 hidden sm:inline-flex">
-              <Sparkles className="w-3 h-3 mr-1" /> Earn Real KES
-            </Badge>
-          </div>
-          <nav className="flex items-center gap-2">
-            {appUser ? (
-              <>
-                <button onClick={signOut} className="text-sm text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg hover:bg-white/5 transition-all">Sign out</button>
-                <Link href={dashboardHref} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 text-sm font-semibold hover:from-amber-400 hover:to-orange-400 transition-all shadow-lg shadow-amber-500/30">
-                  {appUser.isActivated ? 'Dashboard' : 'Activate'} <ArrowRight className="w-4 h-4" />
-                </Link>
-              </>
-            ) : (
-              <>
-                <Link href="/auth/login" className="text-sm text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg hover:bg-white/5 transition-all">Sign in</Link>
-                <Link href="/auth/register" className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 text-sm font-semibold hover:from-amber-400 hover:to-orange-400 transition-all shadow-lg shadow-amber-500/30">
-                  Sign Up Free <ArrowRight className="w-4 h-4" />
-                </Link>
-              </>
-            )}
-          </nav>
-        </div>
-      </header>
+    const socket = io("/?XTransformPort=3003");
+    socketRef.current = socket;
 
-      {/* Hero */}
-      <main className="flex-1 container mx-auto max-w-6xl px-4 py-12 md:py-20 relative z-10">
-        {/* Hero section */}
-        <div className="text-center space-y-8 mb-20">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium">
-            <Star className="w-3 h-3 fill-amber-400" />
-            Trusted by 12,000+ Kenyans · KES 48M+ Paid Out · 96% Satisfaction
-          </div>
+    socket.on("connect", () => {
+      socket.emit("login", myName);
+    });
 
-          <h1 className="text-5xl md:text-6xl lg:text-7xl font-extrabold tracking-tight leading-[1.05]">
-            Complete tasks.
-            <br />
-            <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-red-400 bg-clip-text text-transparent">
-              Earn real KES.
-            </span>
-            <br />
-            Instant M-Pesa withdrawal.
-          </h1>
+    socket.on("messages", (msgs: any[]) => {
+      setMessages(msgs);
+      scrollToBottom();
+    });
 
-          <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            Sign up in 30 seconds. Choose your tier, complete real-opinion surveys and tasks,
-            and watch your balance grow. Withdraw directly to M-Pesa whenever you want.
-          </p>
+    socket.on("new-message", (msg: any) => {
+      setMessages((prev) => [...prev, msg]);
+      scrollToBottom();
+    });
 
-          <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
-            <Link href="/auth/register" className="flex items-center justify-center gap-2 h-14 px-8 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-slate-950 text-base font-bold hover:from-amber-400 hover:via-orange-400 hover:to-red-400 glow transition-all shadow-xl shadow-amber-500/30">
-              Start Earning Now <ArrowRight className="w-5 h-5" />
-            </Link>
-            <Link href="/auth/login" className="flex items-center justify-center gap-2 h-14 px-8 rounded-2xl glass border border-white/10 text-base font-medium hover:bg-white/10 transition-all">
-              I already have an account
-            </Link>
-          </div>
+    socket.on("partner-online", () => setPartnerOnline(true));
+    socket.on("partner-offline", () => setPartnerOnline(false));
 
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto pt-12">
-            <div className="glass rounded-2xl p-5 text-center border border-white/5">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/5 flex items-center justify-center mx-auto mb-2">
-                <TrendingUp className="w-5 h-5 text-amber-400" />
-              </div>
-              <p className="text-2xl font-bold">KES 48M+</p>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Paid Out</p>
-            </div>
-            <div className="glass rounded-2xl p-5 text-center border border-white/5">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 flex items-center justify-center mx-auto mb-2">
-                <Users className="w-5 h-5 text-emerald-400" />
-              </div>
-              <p className="text-2xl font-bold">12,000+</p>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Members</p>
-            </div>
-            <div className="glass rounded-2xl p-5 text-center border border-white/5">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/20 to-cyan-500/5 flex items-center justify-center mx-auto mb-2">
-                <Star className="w-5 h-5 text-cyan-400" />
-              </div>
-              <p className="text-2xl font-bold">96%</p>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider mt-1">Satisfaction</p>
-            </div>
-          </div>
-        </div>
+    socket.on("partner-typing", (data: { sender: string; isTyping: boolean }) => {
+      if (data.sender !== myName) {
+        setPartnerTyping(data.isTyping);
+      }
+    });
 
-        {/* How it works */}
-        <div className="mb-20">
-          <h2 className="text-3xl md:text-4xl font-bold text-center mb-12">How it works</h2>
-          <div className="grid md:grid-cols-4 gap-4">
-            {[
-              { num: 1, icon: Users, title: 'Create Account', desc: 'Sign up with Google or email — pick your username, phone, and tier. Takes 30 seconds.' },
-              { num: 2, icon: Zap, title: 'Activate Tier', desc: 'One-time activation fee via M-Pesa STK push. Silver KES 199, Gold KES 299, VIP KES 399.' },
-              { num: 3, icon: Target, title: 'Complete Tasks', desc: 'Browse 161+ tasks and surveys. Answer questions one at a time. Each completed task adds real money to your balance.' },
-              { num: 4, icon: Wallet, title: 'Withdraw Instantly', desc: 'Send your balance to M-Pesa via B2C payout. Money arrives in 1-2 minutes.' },
-            ].map(step => (
-              <div key={step.num} className="glass rounded-2xl p-5 border border-white/5 relative overflow-hidden group hover:border-amber-500/20 transition-all">
-                <div className="absolute top-4 right-4 text-5xl font-black text-white/5 group-hover:text-amber-500/10 transition-colors">{step.num}</div>
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/5 flex items-center justify-center mb-3">
-                  <step.icon className="w-5 h-5 text-amber-400" />
-                </div>
-                <h3 className="font-semibold mb-1">{step.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{step.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
+    socket.on("auth-error", (err: string) => {
+      alert(err);
+      setLoggedIn(false);
+    });
 
-        {/* Tiers */}
-        <div className="mb-20">
-          <div className="text-center mb-10">
-            <h2 className="text-3xl md:text-4xl font-bold mb-2">Earning Tiers</h2>
-            <p className="text-muted-foreground">Pick the tier that fits your earning ambition.</p>
-          </div>
-          <div className="grid md:grid-cols-3 gap-5">
-            {TIERS.map((tier, i) => (
-              <div
-                key={tier.name}
-                className={`glass ${tier.border} ${i === 1 ? 'glow' : ''} rounded-3xl relative overflow-hidden group hover:scale-[1.02] transition-transform`}
-              >
-                {/* Glow background */}
-                <div className={`absolute inset-0 bg-gradient-to-br ${tier.glow} opacity-50 pointer-events-none`} />
+    return () => {
+      socket.disconnect();
+    };
+  }, [loggedIn, myName]);
 
-                {i === 1 && (
-                  <div className="absolute top-0 right-0 px-4 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 text-xs font-bold rounded-bl-2xl z-10">
-                    POPULAR
-                  </div>
-                )}
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 100);
+  };
 
-                <div className="relative p-6">
-                  <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${tier.glow} flex items-center justify-center mb-4`}>
-                    <tier.icon className={`w-7 h-7 ${tier.iconColor}`} />
-                  </div>
-                  <div className="flex items-baseline justify-between mb-3">
-                    <h3 className="text-2xl font-bold">{tier.name} Tier</h3>
-                    <span className={`text-[10px] px-2 py-1 rounded-full border ${tier.badgeClass} font-semibold`}>{tier.badge}</span>
-                  </div>
-                  <p className="text-3xl font-extrabold mb-1">
-                    {tier.reward}<span className="text-sm font-normal text-muted-foreground">/task</span>
-                  </p>
-                  <p className="text-sm text-muted-foreground mb-4">Activation: <span className="font-semibold text-amber-400">KES {tier.fee}</span></p>
-                  <ul className="space-y-2 mb-5">
-                    {tier.perks.map(p => (
-                      <li key={p} className="flex items-center gap-2 text-sm">
-                        <CheckCircle2 className={`w-4 h-4 ${tier.iconColor} shrink-0`} />
-                        {p}
-                      </li>
-                    ))}
-                  </ul>
-                  <Link
-                    href={`/auth/register?tier=${tier.name.toLowerCase()}`}
-                    className={`flex items-center justify-center gap-1.5 h-11 rounded-xl text-sm font-semibold transition-all ${
-                      tier.name === 'Gold' ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 hover:from-amber-400 hover:to-orange-400'
-                      : tier.name === 'VIP' ? 'bg-gradient-to-r from-violet-500 to-purple-500 text-white hover:from-violet-400 hover:to-purple-400'
-                      : 'glass border border-white/10 text-foreground hover:bg-white/10'
-                    }`}
-                  >
-                    Choose {tier.name} <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+  const handleLogin = () => {
+    const name = username.trim().toLowerCase();
+    if (name === "kayla" || name === "yobby") {
+      setLoggedIn(true);
+    } else {
+      alert("Invalid username. Use 'Kayla' or 'Yobby'.");
+    }
+  };
 
-        {/* Features */}
-        <div className="grid md:grid-cols-3 gap-4 mb-20">
-          {[
-            { icon: Shield, title: 'Bank-Grade Security', desc: 'Firebase Authentication + Google SSO. Your data is encrypted and never shared.' },
-            { icon: Zap, title: 'Instant M-Pesa', desc: 'STK push activation + B2C withdrawals. Money lands in your M-Pesa in 1-2 minutes.' },
-            { icon: Users, title: 'Referral Rewards', desc: 'Earn KES 10 for every friend who activates. Build passive income.' },
-          ].map((f, i) => (
-            <div key={i} className="glass rounded-2xl p-6 border border-white/5 group hover:border-amber-500/20 transition-all">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/5 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <f.icon className="w-6 h-6 text-amber-400" />
-              </div>
-              <h3 className="font-semibold text-lg mb-2">{f.title}</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">{f.desc}</p>
+  const handleSend = () => {
+    if (!input.trim() || !socketRef.current) return;
+    const msg = {
+      text: input.trim(),
+      sender: myName,
+      time: new Date().toISOString(),
+    };
+    socketRef.current.emit("send-message", msg);
+    setInput("");
+    setIsTyping(false);
+    socketRef.current.emit("typing", { sender: myName, isTyping: false });
+  };
+
+  const handleTyping = (value: string) => {
+    setInput(value);
+    if (!socketRef.current) return;
+    if (!isTyping && value.length > 0) {
+      setIsTyping(true);
+      socketRef.current.emit("typing", { sender: myName, isTyping: true });
+    }
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    if (value.length === 0) {
+      setIsTyping(false);
+      socketRef.current.emit("typing", { sender: myName, isTyping: false });
+    } else {
+      typingTimeoutRef.current = setTimeout(() => {
+        setIsTyping(false);
+        socketRef.current?.emit("typing", { sender: myName, isTyping: false });
+      }, 2000);
+    }
+  };
+
+  const formatTime = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch {
+      return "";
+    }
+  };
+
+  // === LOGIN SCREEN ===
+  if (!loggedIn) {
+    return (
+      <div className="min-h-screen flex items-center justify-center"
+        style={{
+          background: "linear-gradient(135deg, #1a0a1e 0%, #2d1b3d 30%, #1a0a2e 60%, #0a0a1e 100%)",
+        }}>
+        {/* Floating hearts */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {[...Array(12)].map((_, i) => (
+            <div
+              key={i}
+              className="absolute text-pink-400/20 animate-pulse"
+              style={{
+                left: `${(i * 8.3) % 100}%`,
+                top: `${(i * 12) % 100}%`,
+                fontSize: `${20 + (i % 4) * 10}px`,
+                animationDelay: `${i * 0.3}s`,
+                animationDuration: `${2 + (i % 3)}s`,
+              }}
+            >
+              💕
             </div>
           ))}
         </div>
 
-        {/* CTA */}
-        <div className="text-center space-y-4 pb-12 relative">
-          <div className="absolute inset-0 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-red-500/10 rounded-3xl blur-2xl" />
-          <div className="relative">
-            <h2 className="text-3xl md:text-4xl font-bold">Ready to start earning?</h2>
-            <p className="text-muted-foreground max-w-md mx-auto mt-2">
-              Create your free account, pick your tier, complete your first task in under 5 minutes.
+        <div className="relative z-10 bg-white/5 backdrop-blur-2xl rounded-3xl p-8 sm:p-12 border border-pink-300/20 shadow-2xl max-w-md w-full mx-4">
+          <div className="text-center mb-8">
+            <div className="text-6xl mb-3">💕</div>
+            <h1 className="text-4xl font-bold bg-gradient-to-r from-pink-300 via-rose-300 to-pink-200 bg-clip-text text-transparent">
+              Kayla
+            </h1>
+            <p className="text-pink-200/60 text-sm mt-2 tracking-wider">
+              Private Chat · Just Us Two
             </p>
-            <Link
-              href="/auth/register"
-              className="inline-flex items-center gap-2 h-14 px-8 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-red-500 text-slate-950 text-base font-bold hover:from-amber-400 hover:via-orange-400 hover:to-red-400 glow transition-all shadow-xl shadow-amber-500/30 mt-4"
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-pink-200/80 text-xs uppercase tracking-widest mb-2 block">
+                Username
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                placeholder="Enter Kayla or Yobby"
+                className="w-full bg-white/10 border border-pink-300/30 rounded-2xl px-5 py-4 text-white placeholder-pink-200/30 focus:outline-none focus:border-pink-400/60 focus:bg-white/15 transition-all text-lg"
+              />
+            </div>
+
+            <button
+              onClick={handleLogin}
+              className="w-full bg-gradient-to-r from-pink-500 via-rose-500 to-pink-400 hover:from-pink-400 hover:to-rose-400 text-white font-semibold py-4 rounded-2xl transition-all shadow-lg shadow-pink-500/30 hover:shadow-pink-500/50 text-lg"
             >
-              Sign Up Free — Get Started <ArrowRight className="w-5 h-5" />
-            </Link>
+              Enter Chat 💕
+            </button>
+          </div>
+
+          <p className="text-center text-pink-200/40 text-xs mt-6">
+            Use <span className="text-pink-300 font-semibold">Kayla</span> or <span className="text-pink-300 font-semibold">Yobby</span> to login
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // === CHAT SCREEN ===
+  return (
+    <div className="min-h-screen flex flex-col"
+      style={{
+        background: `linear-gradient(135deg, #1a0a1e 0%, #2d1b3d 30%, #1a0a2e 60%, #0a0a1e 100%)`,
+      }}>
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-gradient-to-r from-pink-600/30 to-rose-600/30 backdrop-blur-xl border-b border-pink-300/20 px-4 py-3 flex items-center gap-3">
+        <div className="relative">
+          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-pink-400 to-rose-500 flex items-center justify-center text-xl shadow-lg">
+            {partnerAvatar}
+          </div>
+          {partnerOnline && (
+            <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-400 rounded-full border-2 border-[#1a0a1e]"></div>
+          )}
+        </div>
+        <div className="flex-1">
+          <h2 className="text-white font-semibold text-lg">{partnerName}</h2>
+          <p className="text-xs text-white/50">
+            {partnerOnline ? "🟢 Online" : "⚪ Last seen recently"}
+            {partnerTyping && " · typing..."}
+          </p>
+        </div>
+        <div className="text-2xl">💕</div>
+      </header>
+
+      {/* Chat area with background image */}
+      <main
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
+        style={{
+          backgroundImage: `linear-gradient(135deg, rgba(26, 10, 30, 0.85), rgba(45, 27, 61, 0.85)), url(${partnerImage})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundAttachment: "fixed",
+        }}
+      >
+        {/* Day separator */}
+        <div className="flex justify-center my-4">
+          <div className="bg-pink-500/20 backdrop-blur-md text-pink-200 text-xs px-4 py-1.5 rounded-full border border-pink-300/20">
+            💕 Private Chat
           </div>
         </div>
-      </main>
 
-      {/* Footer */}
-      <footer className="glass border-t border-white/5 mt-auto relative z-10">
-        <div className="container mx-auto max-w-6xl px-4 py-8 text-sm">
-          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center font-black text-slate-950 text-sm">Q</div>
-              <span className="font-medium">QuickCash</span>
-              <span className="text-muted-foreground">· © 2026</span>
+        {/* Messages */}
+        {messages.map((msg, i) => {
+          const isMe = msg.sender === myName;
+          return (
+            <div key={msg.id || i} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+              <div
+                className={`max-w-[75%] sm:max-w-[60%] px-4 py-2.5 rounded-2xl backdrop-blur-md shadow-lg ${
+                  isMe
+                    ? "bg-gradient-to-br from-pink-500/80 to-rose-500/80 text-white rounded-br-md"
+                    : "bg-white/15 text-white rounded-bl-md border border-white/10"
+                }`}
+              >
+                <p className="text-sm sm:text-base whitespace-pre-wrap break-words">{msg.text}</p>
+                <p className={`text-[10px] mt-1 ${isMe ? "text-white/60" : "text-white/40"}`}>
+                  {formatTime(msg.time)}
+                </p>
+              </div>
             </div>
-            <div className="flex items-center gap-6 text-muted-foreground text-xs">
-              <Link href="#" className="hover:text-foreground transition-colors">Terms</Link>
-              <Link href="#" className="hover:text-foreground transition-colors">Privacy</Link>
-              <Link href="#" className="hover:text-foreground transition-colors">Help</Link>
-              <Link href="#" className="hover:text-foreground transition-colors">Contact</Link>
+          );
+        })}
+
+        {/* Typing indicator */}
+        {partnerTyping && (
+          <div className="flex justify-start">
+            <div className="bg-white/15 backdrop-blur-md px-4 py-3 rounded-2xl rounded-bl-md border border-white/10">
+              <div className="flex gap-1">
+                <div className="w-2 h-2 bg-pink-300 rounded-full animate-bounce" style={{ animationDelay: "0s" }}></div>
+                <div className="w-2 h-2 bg-pink-300 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
+                <div className="w-2 h-2 bg-pink-300 rounded-full animate-bounce" style={{ animationDelay: "0.4s" }}></div>
+              </div>
             </div>
           </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </main>
+
+      {/* Input bar */}
+      <footer className="sticky bottom-0 bg-gradient-to-r from-pink-900/40 to-rose-900/40 backdrop-blur-xl border-t border-pink-300/20 p-3">
+        <div className="flex items-center gap-2 max-w-3xl mx-auto">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => handleTyping(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            placeholder="Type a message..."
+            className="flex-1 bg-white/10 backdrop-blur-md border border-pink-300/20 rounded-full px-5 py-3 text-white placeholder-white/40 focus:outline-none focus:border-pink-400/50 transition-all"
+          />
+          <button
+            onClick={handleSend}
+            className="bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-400 hover:to-rose-400 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-lg shadow-pink-500/30 transition-all hover:scale-105 active:scale-95"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+        <div className="text-center text-pink-200/30 text-[10px] mt-2">
+          Kayla 💕 Made for us
         </div>
       </footer>
     </div>
