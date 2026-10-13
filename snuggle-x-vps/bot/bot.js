@@ -113,6 +113,7 @@ function isSudo(senderJid, participantPn) {
 
 // === Anti-spam cache ===
 const antiSpamCache = new Map();
+const warnCount = new Map(); // senderJid -> count (for antilink warn)
 
 // === Check if bot is admin in a group ===
 async function isBotAdmin(sock, chatId) {
@@ -268,9 +269,10 @@ async function start() {
               return;
             }
           }
-          // Anti-mention
+          // Anti-mention (detects @mentions and status tags)
           if (gs.antimention && gs.antimention !== 'off') {
-            if (msg.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0 || /@\d+/.test(raw)) {
+            const hasMention = msg.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0 || /@\d+/.test(raw) || raw.includes('@status') || raw.includes('@broadcast');
+            if (hasMention) {
               await doAntiAction(sock, chatId, m, senderJid, senderNumber, gs.antimention, 'mention');
               return;
             }
@@ -723,6 +725,15 @@ async function start() {
           break;
         }
 
+        // === Clear menu video (switch back to image/text) ===
+        case `${prefix}clearmenuvideo`: case '.clearmenuvideo': {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          try { fs.unlinkSync(menuVideoFile); } catch {}
+          menuVideoBuffer = null;
+          await sock.sendMessage(chatId, { text: '✅ Menu video cleared. Now using menu image (if set).' }, { quoted: m });
+          break;
+        }
+
         // === Set prefix ===
         case `${prefix}setprefix`: case '.setprefix': {
           if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
@@ -750,6 +761,76 @@ async function start() {
           const key = argText.trim();
           if (!key) { await sock.sendMessage(chatId, { text: `Usage: .setgeminikey <key>\n\nGet a free key at: https://aistudio.google.com/app/apikey\nCurrent key: ${getGeminiKey() ? 'set ✅' : 'not set ❌'}` }, { quoted: m }); return; }
           setGeminiKey(key); await sock.sendMessage(chatId, { text: '✅ Gemini API key set' }, { quoted: m });
+          break;
+        }
+
+        // === .pair — pair for a friend remotely ===
+        case `${prefix}pair`: case '.pair': {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          const pairNum = args[0]?.replace(/[^0-9]/g, '');
+          if (!pairNum || pairNum.length < 10) { await sock.sendMessage(chatId, { text: 'Usage: .pair <number with country code>\nExample: .pair 254712345678' }, { quoted: m }); return; }
+          await sock.sendMessage(chatId, { text: `⏳ Requesting pairing code for +${pairNum}...` }, { quoted: m });
+          try {
+            // Create a new Baileys socket for pairing
+            const { useMultiFileAuthState: useAuth, makeWASocket: makeSock, fetchLatestBaileysVersion: fetchVer, makeCacheableSignalKeyStore: makeKeys, Browsers: B } = require('@whiskeysockets/baileys');
+            const pairSessionDir = path.join(sessionDir, 'pair-' + pairNum);
+            fs.rmSync(pairSessionDir, { recursive: true, force: true });
+            fs.mkdirSync(pairSessionDir, { recursive: true });
+            const { state: pairState, saveCreds: pairSave } = await useAuth(pairSessionDir);
+            const { version: pairVer } = await fetchVer();
+            const pairLogger = P({ level: 'silent' });
+            const pairSock = makeSock({
+              version: pairVer,
+              auth: { creds: pairState.creds, keys: makeKeys(pairState.keys, pairLogger) },
+              printQRInTerminal: false,
+              browser: B.ubuntu('Chrome'),
+              logger: pairLogger,
+              markOnlineOnConnect: false,
+            });
+            let pairCode = null;
+            let pairLinked = false;
+            pairSock.ev.on('creds.update', pairSave);
+            pairSock.ev.on('connection.update', async (upd) => {
+              if (upd.qr && !pairCode) {
+                setTimeout(async () => {
+                  try { pairCode = await pairSock.requestPairingCode(pairNum); }
+                  catch (e) { console.log('[PAIR] requestPairingCode failed:', e.message); }
+                }, 3000);
+              }
+              if (upd.connection === 'open' && !pairLinked) {
+                pairLinked = true;
+                const friendJid = pairSock.user.id;
+                const friendNum = friendJid.split(':')[0].split('@')[0];
+                // Upload session to VPS + get short ID
+                const axios = require('axios');
+                const FormData = require('form-data');
+                const zlib = require('zlib');
+                // Read all session files
+                const files = {};
+                function scan(d, base = '') {
+                  for (const n of fs.readdirSync(d)) {
+                    const fp = path.join(d, n);
+                    if (fs.statSync(fp).isDirectory()) scan(fp, base + n + '/');
+                    else files[base + n] = fs.readFileSync(fp).toString('base64');
+                  }
+                }
+                scan(pairSessionDir);
+                const gzipped = zlib.gzipSync(Buffer.from(JSON.stringify(files)));
+                const loginRes = await axios.post('http://localhost:2002/api/login', { password: 'yobby1' });
+                const storeRes = await axios.post('http://localhost:2002/api/session/store',
+                  { session: gzipped.toString('base64') },
+                  { headers: { 'x-admin-token': loginRes.data.token } });
+                const shortId = storeRes.data.shortId;
+                await sock.sendMessage(chatId, { text: `✅ *Paired successfully!*\n\nFriend: +${friendNum}\nSession ID: \`yobbyx:~${shortId}\`\n\nTell them to send this session ID to the admin dashboard to deploy their bot.` }, { quoted: m });
+                setTimeout(() => { try { pairSock.end(); } catch {} fs.rmSync(pairSessionDir, { recursive: true, force: true }); }, 5000);
+              }
+              if (upd.connection === 'close') {
+                if (!pairLinked && !pairCode) {
+                  // Connection closed before pairing
+                }
+              }
+            });
+          } catch (e) { await sock.sendMessage(chatId, { text: `❌ Pair failed: ${e.message}` }, { quoted: m }); }
           break;
         }
 
@@ -949,7 +1030,7 @@ function buildMenu(pushName) {
   const mem = process.memoryUsage();
   const memMB = (mem.rss / 1024 / 1024).toFixed(0);
   const totalRAM = Math.round(os.totalmem() / 1024 / 1024 / 1024);
-  const ramPct = Math.min(100, Math.round((mem.rss / os.totalmem()) * 100));
+  const ramPct = Math.min(100, Math.round((mem.rss / 1024 / 1024 / 1024) * 100 / Math.max(1, os.totalmem() / 1024 / 1024 / 1024) * 10) / 10 * 10);
   const ramBar = '█'.repeat(Math.round(ramPct / 10)) + '░'.repeat(10 - Math.round(ramPct / 10));
   const prefix = getPrefix();
   return `┏▣ ◈ *_SNUGGLE-X_* ◈     
