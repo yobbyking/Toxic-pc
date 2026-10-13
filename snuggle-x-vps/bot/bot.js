@@ -362,13 +362,15 @@ async function start() {
 
       // === PUBLIC commands (work for everyone) ===
       if (cmd === `${prefix}menu` || (prefix && lower === 'menu')) {
+        // Show loading animation first
+        await showLoadingAnimation(sock, chatId, m);
+        // Then send the actual menu
         const fakeContact = createFakeContact(ownerNumber, ownerName);
         const menuText = buildMenu(pushName);
         const menuImg = loadMenuImage();
         const menuVid = loadMenuVideo();
         try {
           if (menuVid) {
-            // Send video with menu text as caption (autoplay in WhatsApp)
             await sock.sendMessage(chatId, { video: menuVid.buffer, caption: menuText, mimetype: menuVid.mime, gifPlayback: true }, { quoted: fakeContact });
           } else if (menuImg) {
             await sock.sendMessage(chatId, { image: menuImg, caption: menuText }, { quoted: fakeContact });
@@ -1425,6 +1427,33 @@ async function handleUrlCommand(sock, chatId, m, msg) {
       throw new Error('Upload failed: ' + JSON.stringify(upRes.data));
     }
   } catch (e) { await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m }); }
+}
+
+
+// === Loading animation for .menu ===
+async function showLoadingAnimation(sock, chatId, m) {
+  try {
+    const loadingMsg = await sock.sendMessage(chatId, { text: '*Loading* •' }, { quoted: m });
+    const stages = [
+      '*Loading* ••',
+      '*Loading* • •',
+      '*Loading* • • •',
+      '*Loading* • • • •',
+    ];
+    for (let i = 0; i < stages.length; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      try {
+        await sock.sendMessage(chatId, { text: stages[i], edit: loadingMsg.key }, { quoted: m });
+      } catch {}
+    }
+    await new Promise(r => setTimeout(r, 500));
+    // Delete the loading message
+    try { await sock.sendMessage(chatId, { delete: loadingMsg.key }); } catch {}
+    return loadingMsg;
+  } catch (e) {
+    console.error('Loading animation error:', e.message);
+    return null;
+  }
 }
 
 // === Menu builders ===
