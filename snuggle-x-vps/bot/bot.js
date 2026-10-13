@@ -460,7 +460,8 @@ async function start() {
         }
         case `${prefix}promote`: case '.promote': {
           if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
-          if (!(await isBotAdmin(sock, chatId))) { await sock.sendMessage(chatId, { text: 'Bot is not admin. Make the bot admin first.' }, { quoted: m }); return; }
+          // Admin check: since bot is owner's linked device, if owner is admin, bot is admin
+          const botIsAdmin = await isBotAdmin(sock, chatId);
           const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user' }, { quoted: m }); return; }
           try { await sock.groupParticipantsUpdate(chatId, [target], 'promote'); await sock.sendMessage(chatId, { text: `✅ Promoted @${target.split('@')[0]}`, mentions: [target] }, { quoted: m }); }
@@ -469,7 +470,8 @@ async function start() {
         }
         case `${prefix}demote`: case '.demote': {
           if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
-          if (!(await isBotAdmin(sock, chatId))) { await sock.sendMessage(chatId, { text: 'Bot is not admin. Make the bot admin first.' }, { quoted: m }); return; }
+          // Admin check: since bot is owner's linked device, if owner is admin, bot is admin
+          const botIsAdmin = await isBotAdmin(sock, chatId);
           const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user' }, { quoted: m }); return; }
           try { await sock.groupParticipantsUpdate(chatId, [target], 'demote'); await sock.sendMessage(chatId, { text: `✅ Demoted @${target.split('@')[0]}`, mentions: [target] }, { quoted: m }); }
@@ -486,7 +488,8 @@ async function start() {
         }
         case `${prefix}add`: case '.add': {
           if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
-          if (!(await isBotAdmin(sock, chatId))) { await sock.sendMessage(chatId, { text: 'Bot is not admin. Make the bot admin first.' }, { quoted: m }); return; }
+          // Admin check: since bot is owner's linked device, if owner is admin, bot is admin
+          const botIsAdmin = await isBotAdmin(sock, chatId);
           const n = args[0]?.replace(/[^0-9]/g, '');
           if (!n) { await sock.sendMessage(chatId, { text: 'Usage: .add <number>' }, { quoted: m }); return; }
           try { const t = `${n}@s.whatsapp.net`; await sock.groupParticipantsUpdate(chatId, [t], 'add'); await sock.sendMessage(chatId, { text: `✅ Added ${n}`, mentions: [t] }, { quoted: m }); }
@@ -762,10 +765,8 @@ async function doAntiAction(sock, chatId, m, senderJid, senderNumber, action, ty
     } else if (action === 'warn') {
       await sock.sendMessage(chatId, { text: `⚠️ @${senderNumber}, please don't send ${type}s here.`, mentions: [senderJid] });
     } else if (action === 'kick') {
-      if (!botIsAdmin) {
-        await sock.sendMessage(chatId, { text: `⚠️ Cannot kick — bot is not admin in this group.\nMake the bot admin to use kick action.` });
-        return;
-      }
+      // Try kick regardless — if bot isn't admin, WhatsApp will return error
+      if (!botIsAdmin) console.log('[ANTI] Bot is not admin, kick may fail');
       try { await sock.sendMessage(chatId, { delete: m.key }); } catch {}
       await sock.groupParticipantsUpdate(chatId, [senderJid], 'remove');
       await sock.sendMessage(chatId, { text: `🚫 @${senderNumber} was kicked for sending a ${type}.`, mentions: [senderJid] });
@@ -866,25 +867,22 @@ async function handleUrlCommand(sock, chatId, m, msg) {
     else if (qm.documentMessage) { mime = qm.documentMessage.mimetype || 'application/octet-stream'; ext = qm.documentMessage.fileName?.split('.').pop() || 'bin'; }
     else if (qm.stickerMessage) { mime = qm.stickerMessage.mimetype || 'image/webp'; ext = 'webp'; }
 
-    // Upload to gofile.io (free, permanent, no expiry, up to unlimited size)
+    // Upload to tmpfiles.org (direct download link with file extension)
     const FormData = require('form-data');
     const axios = require('axios');
-    // 1. Get a server
-    const serverRes = await axios.get('https://api.gofile.io/servers', { timeout: 10000 });
-    const server = serverRes.data.data.servers[0].name;
-    // 2. Upload to that server
     const form = new FormData();
     form.append('file', buffer, `upload.${ext}`);
-    const upRes = await axios.post(`https://${server}.gofile.io/contents/uploadfile`, form, {
+    const upRes = await axios.post('https://tmpfiles.org/api/v1/upload', form, {
       headers: form.getHeaders(),
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
-      timeout: 120000,
+      timeout: 60000,
     });
-    if (upRes.data?.status === 'ok' && upRes.data?.data?.downloadPage) {
-      const directUrl = upRes.data.data.downloadPage; // e.g. https://gofile.io/d/NijtPcO6
+    if (upRes.data?.data?.url) {
+      // Convert to direct download link (https://tmpfiles.org/dl/xxxx/filename.ext)
+      const directUrl = upRes.data.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
       await sock.sendMessage(chatId, {
-        text: `✅ *Media uploaded!*\n\n🔗 *URL:*\n${directUrl}\n\n_Size: ${(buffer.length / 1024).toFixed(1)} KB_\n_Type: ${mime}_\n_Permanent (no expiry)_`,
+        text: `✅ *Media uploaded!*\n\n🔗 *URL:*\n${directUrl}\n\n_Size: ${(buffer.length / 1024).toFixed(1)} KB_\n_Type: ${mime}_`,
       }, { quoted: m });
     } else {
       throw new Error('Upload failed: ' + JSON.stringify(upRes.data));
@@ -956,7 +954,7 @@ function buildAllMenu() {
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-┆ 👥 *GROUP COMMANDS*
+┆ 👥 *GROUP & ANTI COMMANDS*
 ┆ ─────────────────────────
 ┆ ${p}tagall ─ Tag all members
 ┆ ${p}hidetag <text> ─ Silent tag
@@ -964,12 +962,7 @@ function buildAllMenu() {
 ┆ ${p}demote @user ─ Remove admin
 ┆ ${p}kick @user ─ Remove member
 ┆ ${p}add <number> ─ Add member
-┆
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-┆ 🛡 *ANTI COMMANDS*
-┆ ─────────────────────────
+┆ ─
 ┆ ${p}antilink delete/warn/kick on
 ┆ ${p}antispam delete/warn/kick on
 ┆ ${p}antibadword delete/warn/kick on
