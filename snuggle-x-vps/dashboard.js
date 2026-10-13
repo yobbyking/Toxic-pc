@@ -67,14 +67,14 @@ function storeSession(shortId, session) {
   const data = {
     session,
     createdAt: Date.now(),
-    expiresAt: Date.now() + 60 * 60 * 1000, // 60 minutes
+    expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
   };
   fs.writeFileSync(filePath, JSON.stringify(data));
   // Schedule deletion
   setTimeout(() => {
     try { fs.unlinkSync(filePath); } catch {}
     console.log(`[STORE] Session ${shortId} expired`);
-  }, 60 * 60 * 1000);
+  }, 24 * 60 * 60 * 1000);
 }
 
 function getSession(shortId) {
@@ -163,7 +163,8 @@ app.post('/api/deploy', auth, async (req, res) => {
       const gzipped = Buffer.from(storedB64, 'base64');
       const json = zlib.gunzipSync(gzipped).toString('utf-8');
       sessionFiles = JSON.parse(json);
-      deleteSession(b64);
+      // DON'T delete session — allow redeploying the same session ID multiple times
+      // (the session expires from disk after 60 minutes anyway via the timeout)
       console.log(`[DEPLOY] Session ${b64} decoded successfully (${gzipped.length} bytes)`);
     } catch (e) {
       return res.status(400).json({ error: `Failed to decode session: ${e.message}` });
