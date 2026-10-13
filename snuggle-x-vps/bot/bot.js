@@ -414,7 +414,7 @@ async function start() {
           await sock.sendMessage(chatId, { text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅' }, { quoted: m });
           return;
         }
-        const ownerOnlyCmds = ['alive','owner','mode','addsudo','delsudo','sudolist','tagall','hidetag','promote','demote','kick','add','antilink','antispam','antibadword','antidelete','antimention','antitag','antisticker','autofaketyping','autofakerecording','setmenuimage','setmenuvideo','setprefix','chatbot','setgeminikey','vv','fak','kickadmins','kickall','getpp','pair'];
+        const ownerOnlyCmds = ['alive','owner','mode','addsudo','delsudo','sudolist','tagall','hidetag','promote','demote','kick','add','antilink','antispam','antibadword','antidelete','antimention','antitag','antisticker','autofaketyping','autofakerecording','setmenuimage','setmenuvideo','setprefix','chatbot','setgeminikey','vv','fak','kickadmins','kickall','getpp','pair','block','unblock','setpp','setbio','setname','leave','join','resetlink','setgroupname','setdesc'];
         if (ownerOnlyCmds.some(c => cmd === `${prefix}${c}`)) {
           await sock.sendMessage(chatId, { text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅' }, { quoted: m });
           return;
@@ -767,18 +767,15 @@ async function start() {
           break;
         }
 
-        // === .fak — remove from voice chat ===
+        // === .fak — remove from voice chat (kicks from group, which also removes from VC) ===
         case `${prefix}fak`: {
           if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
           const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-          if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user to remove from voice chat' }, { quoted: m }); return; }
+          if (!target) { await sock.sendMessage(chatId, { text: '⚠️ Reply to a user or mention them with .fak\n\nNote: This removes them from the group entirely (WhatsApp does not allow removing only from voice chat via API). They can rejoin with the group link.' }, { quoted: m }); return; }
           try {
-            // WhatsApp voice chat removal — uses groupParticipantsUpdate with 'remove' but targets voice chat
-            // Actually, WhatsApp doesn't have a direct API for voice chat removal via Baileys
-            // We can try kicking them from the group (which also removes from voice chat)
             await sock.groupParticipantsUpdate(chatId, [target], 'remove');
-            await sock.sendMessage(chatId, { text: `✅ Removed @${target.split('@')[0]} from voice chat`, mentions: [target] }, { quoted: m });
-          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+            await sock.sendMessage(chatId, { text: `✅ @${target.split('@')[0]} removed from group + voice chat`, mentions: [target] }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}\n\nNote: WhatsApp does not have an API to remove only from voice chat. .fak removes from the group entirely.` }, { quoted: m }); }
           break;
         }
 
@@ -844,6 +841,243 @@ _${target.split('@')[0]}_`,
               await sock.sendMessage(chatId, { text: `❌ Could not get profile picture (may be private)` }, { quoted: m });
             }
           }
+          break;
+        }
+
+        // === Fun & Utility commands ===
+        case `${prefix}weather`: {
+          const city = argText;
+          if (!city) { await sock.sendMessage(chatId, { text: 'Usage: .weather <city>' }, { quoted: m }); return; }
+          try {
+            const axios = require('axios');
+            const res = await axios.get(`https://wttr.in/${encodeURIComponent(city)}?format=3`, { timeout: 10000 });
+            await sock.sendMessage(chatId, { text: `🌤️ *Weather:* ${res.data}` }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}wiki`: {
+          const query = argText;
+          if (!query) { await sock.sendMessage(chatId, { text: 'Usage: .wiki <query>' }, { quoted: m }); return; }
+          try {
+            const axios = require('axios');
+            const res = await axios.get(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`, { timeout: 10000 });
+            const d = res.data;
+            await sock.sendMessage(chatId, { text: `📖 *${d.title}*\n\n${d.extract}\n\n🔗 ${d.content_urls?.desktop?.page || ''}` }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `❌ Not found` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}define`: {
+          const word = argText;
+          if (!word) { await sock.sendMessage(chatId, { text: 'Usage: .define <word>' }, { quoted: m }); return; }
+          try {
+            const axios = require('axios');
+            const res = await axios.get(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, { timeout: 10000 });
+            const d = res.data[0];
+            const def = d.meanings[0].definitions[0];
+            await sock.sendMessage(chatId, { text: `📖 *${word}* (${d.meanings[0].partOfSpeech})\n\n${def.definition}${def.example ? '\n\n_Example: ' + def.example + '_' : ''}` }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `❌ Word not found` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}shorten`: {
+          const url = args[0];
+          if (!url) { await sock.sendMessage(chatId, { text: 'Usage: .shorten <url>' }, { quoted: m }); return; }
+          try {
+            const axios = require('axios');
+            const res = await axios.get(`https://is.gd/create.php?format=simple&url=${encodeURIComponent(url)}`, { timeout: 10000 });
+            await sock.sendMessage(chatId, { text: `🔗 *Shortened:* ${res.data}` }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}tts`: {
+          const text = argText;
+          if (!text) { await sock.sendMessage(chatId, { text: 'Usage: .tts <text>' }, { quoted: m }); return; }
+          try {
+            const axios = require('axios');
+            const res = await axios.get(`https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`, { responseType: 'arraybuffer', timeout: 15000 });
+            await sock.sendMessage(chatId, { audio: Buffer.from(res.data), mimetype: 'audio/mpeg' }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}translate`: {
+          if (!argText) { await sock.sendMessage(chatId, { text: 'Usage: .translate <text>' }, { quoted: m }); return; }
+          try {
+            const axios = require('axios');
+            const res = await axios.get(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${encodeURIComponent(argText)}`, { timeout: 10000 });
+            const translated = res.data[0].map(t => t[0]).join('');
+            await sock.sendMessage(chatId, { text: `🌐 *Translation:*\n${translated}` }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}8ball`: {
+          const answers = ['It is certain.', 'Without a doubt.', 'Yes definitely.', 'You may rely on it.', 'Most likely.', 'Yes.', 'Signs point to yes.', 'Ask again later.', 'Better not tell you now.', 'Cannot predict now.', 'Dont count on it.', 'My reply is no.', 'Very doubtful.'];
+          const ans = answers[Math.floor(Math.random() * answers.length)];
+          await sock.sendMessage(chatId, { text: `🎱 *Magic 8-Ball*\n\n${ans}` }, { quoted: m });
+          break;
+        }
+        case `${prefix}truth`: {
+          const truths = ['What is your biggest fear?', 'What is the most embarrassing thing that happened to you?', 'What is your biggest secret?', 'Who is your crush?', 'What is the worst thing you have ever done?', 'What is your biggest regret?', 'What is the strangest thing you have ever eaten?', 'What is the biggest lie you have ever told?'];
+          await sock.sendMessage(chatId, { text: `🤔 *Truth:* ${truths[Math.floor(Math.random() * truths.length)]}` }, { quoted: m });
+          break;
+        }
+        case `${prefix}dare`: {
+          const dares = ['Send a voice note singing a song.', 'Send your last screenshot.', 'Send a selfie right now.', 'Text the first person in your contacts "I love you".', 'Do 10 push-ups and send a video.', 'Change your profile picture to a cartoon character for 1 hour.'];
+          await sock.sendMessage(chatId, { text: `😈 *Dare:* ${dares[Math.floor(Math.random() * dares.length)]}` }, { quoted: m });
+          break;
+        }
+        case `${prefix}joke`: {
+          try {
+            const axios = require('axios');
+            const res = await axios.get('https://v2.jokeapi.dev/joke/Any?safe-mode&type=single', { timeout: 10000 });
+            await sock.sendMessage(chatId, { text: `😂 ${res.data.joke}` }, { quoted: m });
+          } catch { await sock.sendMessage(chatId, { text: '😂 Why dont programmers like nature? It has too many bugs.' }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}quote`: {
+          try {
+            const axios = require('axios');
+            const res = await axios.get('https://api.quotable.io/random', { timeout: 10000 });
+            await sock.sendMessage(chatId, { text: `💬 *${res.data.content}*\n\n— ${res.data.author}` }, { quoted: m });
+          } catch { await sock.sendMessage(chatId, { text: '💬 *The only way to do great work is to love what you do.*\n\n— Steve Jobs' }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}fact`: {
+          const facts = ['Honey never spoils.', 'A group of flamingos is called a flamboyance.', 'The shortest war in history lasted 38 minutes.', 'Octopuses have three hearts.', 'A jiffy is an actual unit of time (1/100 of a second).', 'Bananas are berries, but strawberries arent.', 'The first computer bug was an actual bug.'];
+          await sock.sendMessage(chatId, { text: `🧠 *Did you know?* ${facts[Math.floor(Math.random() * facts.length)]}` }, { quoted: m });
+          break;
+        }
+        case `${prefix}pickupline`: {
+          const lines = ['Are you a magician? Because every time I look at you, everyone else disappears.', 'Do you have a map? I keep getting lost in your eyes.', 'Are you Wi-Fi? Because Im feeling a connection.', 'Is your name Google? Because you have everything Ive been searching for.'];
+          await sock.sendMessage(chatId, { text: `😏 ${lines[Math.floor(Math.random() * lines.length)]}` }, { quoted: m });
+          break;
+        }
+        case `${prefix}rps`: {
+          const choices = ['rock', 'paper', 'scissors'];
+          const botChoice = choices[Math.floor(Math.random() * 3)];
+          const userChoice = args[0]?.toLowerCase();
+          if (!userChoice || !choices.includes(userChoice)) { await sock.sendMessage(chatId, { text: 'Usage: .rps <rock|paper|scissors>' }, { quoted: m }); return; }
+          let result = '';
+          if (userChoice === botChoice) result = 'Tie! 🤝';
+          else if ((userChoice === 'rock' && botChoice === 'scissors') || (userChoice === 'paper' && botChoice === 'rock') || (userChoice === 'scissors' && botChoice === 'paper')) result = 'You win! 🎉';
+          else result = 'I win! 🤖';
+          await sock.sendMessage(chatId, { text: `🪨📄✂️ *Rock Paper Scissors*\n\nYou: ${userChoice}\nBot: ${botChoice}\n\n${result}` }, { quoted: m });
+          break;
+        }
+        case `${prefix}ship`: {
+          const user1 = args[0] || 'Romeo';
+          const user2 = args[1] || 'Juliet';
+          const percent = Math.floor(Math.random() * 100);
+          const emoji = percent > 80 ? '💕' : percent > 50 ? '💖' : percent > 30 ? '💔' : '❌';
+          await sock.sendMessage(chatId, { text: `💞 *Ship*\n\n${user1} ❤️ ${user2}\n\nCompatibility: ${percent}% ${emoji}` }, { quoted: m });
+          break;
+        }
+        case `${prefix}time`: {
+          await sock.sendMessage(chatId, { text: `🕐 ${new Date().toLocaleString()}` }, { quoted: m });
+          break;
+        }
+        case `${prefix}uptime`: {
+          await sock.sendMessage(chatId, { text: `⏱️ Bot uptime: ${formatUptime(process.uptime())}` }, { quoted: m });
+          break;
+        }
+        case `${prefix}repo`: {
+          await sock.sendMessage(chatId, { text: `📦 GitHub: https://github.com/yobbyking/snuggle-x-vps` }, { quoted: m });
+          break;
+        }
+        case `${prefix}block`: {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+          if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user to block' }, { quoted: m }); return; }
+          try { await sock.updateBlockStatus(target, 'block'); await sock.sendMessage(chatId, { text: `✅ Blocked ${target.split('@')[0]}` }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}unblock`: {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          const target = args[0]?.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+          if (!target) { await sock.sendMessage(chatId, { text: 'Usage: .unblock <number>' }, { quoted: m }); return; }
+          try { await sock.updateBlockStatus(target, 'unblock'); await sock.sendMessage(chatId, { text: `✅ Unblocked ${target.split('@')[0]}` }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}setpp`: case `${prefix}setprofilepic`: {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          try {
+            if (msg.imageMessage) {
+              const buf = await downloadMediaMessage(m, 'buffer', {}, { logger: P({ level: 'silent' }) });
+              await sock.updateProfilePicture(sock.user.id, Buffer.from(buf));
+              await sock.sendMessage(chatId, { text: '✅ Profile picture updated' }, { quoted: m });
+            } else { await sock.sendMessage(chatId, { text: 'Send an image with caption .setpp' }, { quoted: m }); }
+          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}setbio`: {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          const bio = argText;
+          if (!bio) { await sock.sendMessage(chatId, { text: 'Usage: .setbio <text>' }, { quoted: m }); return; }
+          try { await sock.updateProfileStatus(bio); await sock.sendMessage(chatId, { text: '✅ Bio updated' }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}setname`: {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          const name = argText;
+          if (!name) { await sock.sendMessage(chatId, { text: 'Usage: .setname <name>' }, { quoted: m }); return; }
+          try { await sock.updateProfileName(name); await sock.sendMessage(chatId, { text: `✅ Name updated to: ${name}` }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}grouplink`: case `${prefix}link`: {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          try {
+            const code = await sock.groupInviteCode(chatId);
+            await sock.sendMessage(chatId, { text: `🔗 *Group Link:*\nhttps://chat.whatsapp.com/${code}` }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}resetlink`: {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          try { await sock.groupRevokeInvite(chatId); await sock.sendMessage(chatId, { text: '✅ Group link reset' }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}setgroupname`: {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          const name = argText;
+          if (!name) { await sock.sendMessage(chatId, { text: 'Usage: .setgroupname <name>' }, { quoted: m }); return; }
+          try { await sock.groupUpdateSubject(chatId, name); await sock.sendMessage(chatId, { text: `✅ Group name updated to: ${name}` }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}setdesc`: {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          const desc = argText;
+          if (!desc) { await sock.sendMessage(chatId, { text: 'Usage: .setdesc <description>' }, { quoted: m }); return; }
+          try { await sock.groupUpdateDescription(chatId, desc); await sock.sendMessage(chatId, { text: '✅ Group description updated' }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}ginfo`: {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          try {
+            const meta = await sock.groupMetadata(chatId);
+            const admins = meta.participants.filter(p => p.admin).length;
+            await sock.sendMessage(chatId, { text: `📋 *Group Info*\n\n*Name:* ${meta.subject}\n*Members:* ${meta.participants.length}\n*Admins:* ${admins}\n*Created:* ${new Date(meta.creation * 1000).toLocaleDateString()}\n*Desc:* ${meta.desc || 'None'}` }, { quoted: m });
+          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}leave`: {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          await sock.sendMessage(chatId, { text: '👋 Goodbye!' }, { quoted: m });
+          await sock.groupLeave(chatId);
+          break;
+        }
+        case `${prefix}join`: {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          const link = args[0];
+          if (!link || !link.includes('chat.whatsapp.com')) { await sock.sendMessage(chatId, { text: 'Usage: .join <group link>' }, { quoted: m }); return; }
+          const code = link.split('/').pop();
+          try { await sock.groupAcceptInvite(code); await sock.sendMessage(chatId, { text: '✅ Joined group' }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
           break;
         }
 
@@ -1206,12 +1440,42 @@ function buildAllMenu() {
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-┆ 🎨 *MEDIA COMMANDS*
+┆ 🎨 *MEDIA & DOWNLOAD*
 ┆ ─────────────────────────
 ┆ ${p}sticker ─ Convert media to sticker
-┆ ${p}url ─ Upload media, get public URL
+┆ ${p}url ─ Upload media, get URL
 ┆ ${p}song <query> ─ Download MP3
 ┆ ${p}video <query> ─ Download MP4
+┆ ${p}tts <text> ─ Text to speech
+┆ ${p}translate <text> ─ Translate
+┆
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+┆ 🎮 *FUN & GAMES*
+┆ ─────────────────────────
+┆ ${p}8ball <question> ─ Magic 8-ball
+┆ ${p}truth ─ Truth question
+┆ ${p}dare ─ Dare challenge
+┆ ${p}joke ─ Random joke
+┆ ${p}quote ─ Random quote
+┆ ${p}fact ─ Random fact
+┆ ${p}pickupline ─ Pickup line
+┆ ${p}rps <rock|paper|scissors>
+┆ ${p}ship <name1> <name2>
+┆
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
+┆ 🔍 *SEARCH & TOOLS*
+┆ ─────────────────────────
+┆ ${p}weather <city>
+┆ ${p}wiki <query>
+┆ ${p}define <word>
+┆ ${p}shorten <url>
+┆ ${p}time ─ Current time
+┆ ${p}uptime ─ Bot uptime
+┆ ${p}repo ─ GitHub repo
 ┆
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1229,6 +1493,17 @@ function buildAllMenu() {
 ┆ ${p}kickadmins ─ Kick all admins
 ┆ ${p}getpp ─ Get profile pic
 ┆ ${p}pair <number> ─ Pair for friend
+┆ ${p}block/unblock <number>
+┆ ${p}setpp ─ Set profile pic
+┆ ${p}setbio ─ Set bio
+┆ ${p}setname ─ Set name
+┆ ${p}join <link> ─ Join group
+┆ ${p}leave ─ Leave group
+┆ ${p}grouplink ─ Get group link
+┆ ${p}resetlink ─ Reset group link
+┆ ${p}setgroupname ─ Set group name
+┆ ${p}setdesc ─ Set group desc
+┆ ${p}ginfo ─ Group info
 ┆
 ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
