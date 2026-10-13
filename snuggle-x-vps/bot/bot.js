@@ -271,7 +271,7 @@ async function start() {
           }
           // Anti-mention (detects @mentions and status tags)
           if (gs.antimention && gs.antimention !== 'off') {
-            const hasMention = (msg.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0) || /@\d+/.test(raw) || raw.toLowerCase().includes('@status') || raw.toLowerCase().includes('@broadcast') || raw.toLowerCase().includes('status@');
+            const hasMention = (msg.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0) || /@\d+/.test(raw) || raw.toLowerCase().includes('@status') || raw.toLowerCase().includes('@broadcast') || raw.toLowerCase().includes('status@') || (msg.extendedTextMessage?.contextInfo?.mentionedJid || []).some(j => j.includes('status') || j.includes('broadcast'));
             if (hasMention) {
               await doAntiAction(sock, chatId, m, senderJid, senderNumber, gs.antimention, 'mention');
               return;
@@ -358,7 +358,7 @@ async function start() {
       }
 
       // === Small delay before responding in DMs (prevents "Waiting for this message") ===
-      if (!isGroup) { await new Promise(r => setTimeout(r, 1000)); }
+      if (!isGroup) { await new Promise(r => setTimeout(r, 3000)); }
 
       // === PUBLIC commands (work for everyone) ===
       if (cmd === `${prefix}menu` || (prefix && lower === 'menu')) {
@@ -656,7 +656,8 @@ async function start() {
             else if (quoted.imageMessage) { mediaType = 'image'; mime = quoted.imageMessage.mimetype || 'image/jpeg'; }
             else if (quoted.viewOnceMessageV2?.message?.imageMessage) { mediaType = 'image'; mime = quoted.viewOnceMessageV2.message.imageMessage.mimetype || 'image/jpeg'; }
             else if (quoted.viewOnceMessageV2?.message?.videoMessage) { mediaType = 'video'; mime = quoted.viewOnceMessageV2.message.videoMessage.mimetype || 'video/mp4'; }
-            // Send to owner's DM
+            // Send to owner's DM (with delay to prevent Waiting for this message)
+            await new Promise(r => setTimeout(r, 2000));
             const caption = `🔓 *View-once unlocked by Snuggle X*\n_Type: ${mediaType}_\n_Size: ${(buffer.length / 1024).toFixed(1)} KB_`;
             if (mediaType === 'video') { await sock.sendMessage(ownerJid, { video: buffer, caption, mimetype: mime }); }
             else if (mediaType === 'audio') { await sock.sendMessage(ownerJid, { audio: buffer, mimetype: mime }); }
@@ -1390,140 +1391,161 @@ function buildMenu(pushName) {
 function buildAllMenu() {
   const prefix = getPrefix();
   const p = prefix === '' ? '' : prefix;
-  return `╔════════════════════════════╗
-║   ◈ *SNUGGLE X COMMANDS* ◈   ║
-║   _Developed by yobby_mking_   ║
-╚════════════════════════════╝
+  return `╔══════════════════════════════════╗
+║                                    ║
+║   ◈  S N U G G L E  X  ◈           ║
+║   C O M M A N D  L I S T            ║
+║   _Developed by yobby_mking_       ║
+║                                    ║
+╚══════════════════════════════════╝
 
-╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-┆ 🌐 *PUBLIC COMMANDS*
-┆ ─────────────────────────
-┆ ${p}menu ─ Main menu + contact card
-┆ ${p}all ─ This full command list
-┆ ${p}ping ─ Latency check
-┆ ${p}help ─ Quick help
-┆ ${p}whoami ─ Your session info
-┆ ${p}sticker ─ Image/video → sticker
-┆ ${p}url ─ Upload media → get URL
-┆
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╭━━━ ❰ 🌐 P U B L I C ❱ ━━━━━━━━
+┃
+┃  ${p}menu ─── Main menu
+┃  ${p}all ──── Full command list
+┃  ${p}ping ─── Latency check
+┃  ${p}help ──── Quick help
+┃  ${p}whoami ─ Your session info
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-┆ 👑 *OWNER COMMANDS*
-┆ ─────────────────────────
-┆ ${p}alive ─ Bot status
-┆ ${p}owner ─ Owner info
-┆ ${p}mode ─ Show/change mode
-┆ ${p}addsudo <num> ─ Add sudo
-┆ ${p}delsudo <num> ─ Remove sudo
-┆ ${p}sudolist ─ List sudo users
-┆ ${p}autofaketyping all on/off
-┆ ${p}autofakerecording all on/off
-┆ ${p}setmenuimage <url|reply>
-┆ ${p}setprefix <prefix|none>
-┆ ${p}chatbot on/off ─ AI in DMs
-┆
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╭━━━ ❰ 👑 O W N E R ❱ ━━━━━━━━
+┃
+┃  ${p}alive ─── Bot status
+┃  ${p}owner ──── Owner info
+┃  ${p}mode ───── Show/change mode
+┃  ${p}addsudo ── Add sudo user
+┃  ${p}delsudo ── Remove sudo user
+┃  ${p}sudolist ─ List sudo users
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-┆ 👥 *GROUP & ANTI COMMANDS*
-┆ ─────────────────────────
-┆ ${p}tagall ─ Tag all members
-┆ ${p}hidetag <text> ─ Silent tag
-┆ ${p}promote @user ─ Make admin
-┆ ${p}demote @user ─ Remove admin
-┆ ${p}kick @user ─ Remove member
-┆ ${p}add <number> ─ Add member
-┆ ${p}kickall ─ Kick ALL members
-┆ ${p}kickadmins ─ Kick all admins
-┆ ${p}fak @user ─ Remove from VC
-┆ ${p}getpp ─ Get profile pic
-┆ ${p}pair <number> ─ Pair for friend
-┆ ─
-┆ ${p}antilink delete/warn/kick on
-┆ ${p}antispam delete/warn/kick on
-┆ ${p}antibadword delete/warn/kick on
-┆ ${p}antidelete on/off (all on/off)
-┆ ${p}antimention delete/warn/kick on
-┆ ${p}antitag delete/warn/kick on
-┆ ${p}antisticker delete/warn/kick on
-┆ ─ Use "off" to disable any
-┆
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╭━━━ ❰ 👥 G R O U P ❱ ━━━━━━━━
+┃
+┃  ${p}tagall ──── Tag all members
+┃  ${p}hidetag ──── Silent tag
+┃  ${p}promote ──── Make admin
+┃  ${p}demote ───── Remove admin
+┃  ${p}kick ─────── Remove member
+┃  ${p}add ──────── Add member
+┃  ${p}kickall ──── Kick ALL members
+┃  ${p}kickadmins ── Kick all admins
+┃  ${p}fak @user ── Remove from VC
+┃  ${p}warn @user ── Warn (3=kick)
+┃  ${p}resetwarn ── Reset warnings
+┃  ${p}mute/close ── Mute group
+┃  ${p}unmute/open ─ Unmute group
+┃  ${p}lock ─────── Lock settings
+┃  ${p}unlock ───── Unlock settings
+┃  ${p}tagadmin ──── Tag all admins
+┃  ${p}totalmembers ─ Member count
+┃  ${p}setppgroup ── Set group PP
+┃  ${p}setgroupname ─ Set group name
+┃  ${p}setdesc ──── Set group desc
+┃  ${p}ginfo ────── Group info
+┃  ${p}grouplink ── Get invite link
+┃  ${p}resetlink ── Reset invite link
+┃  ${p}poll <q|o1|o2> ─ Create poll
+┃  ${p}vcf ──────── Save contacts
+┃  ${p}afk <reason> ─ AFK mode
+┃  ${p}unafk ────── Turn off AFK
+┃  ${p}join <link> ─ Join group
+┃  ${p}leave ────── Leave group
+┃  ${p}getpp ────── Get profile pic
+┃
+╭━━━ ❰ 🛡 A N T I ❱ ━━━━━━━━━
+┃
+┃  ${p}antilink delete/warn/kick on
+┃  ${p}antispam delete/warn/kick on
+┃  ${p}antibadword delete/warn/kick on
+┃  ${p}antidelete on/off (all on/off)
+┃  ${p}antimention delete/warn/kick on
+┃  ${p}antitag delete/warn/kick on
+┃  ${p}antisticker delete/warn/kick on
+┃  _Use "off" to disable any_
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-┆ 🎨 *MEDIA & DOWNLOAD*
-┆ ─────────────────────────
-┆ ${p}sticker ─ Convert media to sticker
-┆ ${p}url ─ Upload media, get URL
-┆ ${p}song <query> ─ Download MP3
-┆ ${p}video <query> ─ Download MP4
-┆ ${p}tts <text> ─ Text to speech
-┆ ${p}translate <text> ─ Translate
-┆
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╭━━━ ❰ 📥 D O W N L O A D ❱ ━━
+┃
+┃  ${p}song <query> ── YouTube MP3
+┃  ${p}video <query> ── YouTube MP4
+┃  ${p}ytmp3 <url> ──── YT to MP3
+┃  ${p}ytmp4 <url> ──── YT to MP4
+┃  ${p}instagram <url> ─ IG post/reel
+┃  ${p}tiktok <url> ─── TikTok video
+┃  ${p}facebook <url> ── FB video
+┃  ${p}twitter <url> ─── Twitter/X video
+┃  ${p}mediafire <url> ─ MediaFire file
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-┆ 🎮 *FUN & GAMES*
-┆ ─────────────────────────
-┆ ${p}8ball <question> ─ Magic 8-ball
-┆ ${p}truth ─ Truth question
-┆ ${p}dare ─ Dare challenge
-┆ ${p}joke ─ Random joke
-┆ ${p}quote ─ Random quote
-┆ ${p}fact ─ Random fact
-┆ ${p}pickupline ─ Pickup line
-┆ ${p}rps <rock|paper|scissors>
-┆ ${p}ship <name1> <name2>
-┆
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╭━━━ ❰ 🎨 M E D I A ❱ ━━━━━━━━
+┃
+┃  ${p}sticker ──── Media to sticker
+┃  ${p}url ──────── Upload media, get URL
+┃  ${p}tts <text> ── Text to speech
+┃  ${p}translate ─── Translate text
+┃  ${p}vv ──────── Unlock view-once
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-┆ 🔍 *SEARCH & TOOLS*
-┆ ─────────────────────────
-┆ ${p}weather <city>
-┆ ${p}wiki <query>
-┆ ${p}define <word>
-┆ ${p}shorten <url>
-┆ ${p}time ─ Current time
-┆ ${p}uptime ─ Bot uptime
-┆ ${p}repo ─ GitHub repo
-┆
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╭━━━ ❰ 🎮 F U N ❱ ━━━━━━━━━━━
+┃
+┃  ${p}8ball ───── Magic 8-ball
+┃  ${p}truth ───── Truth question
+┃  ${p}dare ────── Dare challenge
+┃  ${p}joke ────── Random joke
+┃  ${p}quote ───── Random quote
+┃  ${p}fact ────── Random fact
+┃  ${p}pickupline ─ Pickup line
+┃  ${p}rps <r|p|s> ─ Rock Paper Scissors
+┃  ${p}ship <n1> <n2> ─ Compatibility
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈
-┆ 🔒 *OWNER-ONLY*
-┆ ─────────────────────────
-┆ ${p}vv ─ Unlock view-once (reply)
-┆ ${p}setmenuimage <url|reply>
-┆ ${p}setmenuvideo <url|reply>
-┆ ${p}clearmenuvideo ─ Back to image
-┆ ${p}setprefix <prefix|none>
-┆ ${p}chatbot on/off ─ AI in DMs
-┆ ${p}fak @user ─ Remove from VC
-┆ ${p}kickall ─ Kick all members
-┆ ${p}kickadmins ─ Kick all admins
-┆ ${p}getpp ─ Get profile pic
-┆ ${p}pair <number> ─ Pair for friend
-┆ ${p}block/unblock <number>
-┆ ${p}setpp ─ Set profile pic
-┆ ${p}setbio ─ Set bio
-┆ ${p}setname ─ Set name
-┆ ${p}join <link> ─ Join group
-┆ ${p}leave ─ Leave group
-┆ ${p}grouplink ─ Get group link
-┆ ${p}resetlink ─ Reset group link
-┆ ${p}setgroupname ─ Set group name
-┆ ${p}setdesc ─ Set group desc
-┆ ${p}ginfo ─ Group info
-┆
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╭━━━ ❰ 🔍 S E A R C H ❱ ━━━━━━
+┃
+┃  ${p}weather <city> ─ Weather
+┃  ${p}wiki <query> ──── Wikipedia
+┃  ${p}define <word> ─── Dictionary
+┃  ${p}shorten <url> ─── URL shortener
+┃  ${p}time ─────────── Current time
+┃  ${p}uptime ───────── Bot uptime
+┃  ${p}repo ─────────── GitHub repo
+┃  ${p}jid ──────────── Chat JID
+┃  ${p}userid ────────── User ID
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-> *SNUGGLE X* · Created by Yobby King
+╭━━━ ❰ ⚙️ S E T T I N G S ❱ ━━━
+┃
+┃  ${p}alwaysonline on/off
+┃  ${p}autoread on/off
+┃  ${p}autoviewstatus on/off
+┃  ${p}anticall on/off
+┃  ${p}autofaketyping all on/off
+┃  ${p}autofakerecording all on/off
+┃  ${p}chatbot on/off ─ AI in DMs
+┃  ${p}setpp ──────── Set profile pic
+┃  ${p}setbio ─────── Set bio
+┃  ${p}setname ─────── Set display name
+┃  ${p}setprefix ───── Set prefix
+┃  ${p}setmenuimage ── Set menu image
+┃  ${p}setmenuvideo ── Set menu video
+┃  ${p}clearmenuvideo ─ Clear video
+┃  ${p}setstickerpackname <name>
+┃  ${p}setstickerauthor <name>
+┃  ${p}setwatermark <text>
+┃  ${p}block/unblock <number>
+┃  ${p}pair <number> ─ Pair for friend
+┃
+╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+> S N U G G L E  X · C R E A T E D  B Y  Y O B B Y  K I N G
 > Instagram: @yobby_mking
 > Dev: 0795314221 / 0181163563`;
 }
-
 function buildAlive() {
   const mem = process.memoryUsage();
   return `*SNUGGLE X IS ALIVE ✅*
