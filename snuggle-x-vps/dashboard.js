@@ -123,9 +123,37 @@ app.post('/api/deploy', auth, async (req, res) => {
 
   // === Check if it's a short ID (12 hex chars), a URL, or base64 (old format) ===
   if (/^[a-f0-9]{12}$/.test(b64)) {
-    // Short format: look up in the disk-persisted session store
+    // Short format: look up in the disk-persisted session store first
     console.log(`[DEPLOY] Looking up short session ID: ${b64}`);
-    const storedB64 = getSession(b64);
+    let storedB64 = getSession(b64);
+
+    // If not found locally, try fetching from the Render pairing site
+    if (!storedB64) {
+      const PAIRING_URL = process.env.PAIRING_URL || 'https://snuggle-x-pair.onrender.com';
+      console.log(`[DEPLOY] Not found locally, trying pairing site: ${PAIRING_URL}/api/session/${b64}`);
+      try {
+        const https = require('https');
+        const fetchJson = (url) => new Promise((resolve, reject) => {
+          https.get(url, { timeout: 30000 }, (resp) => {
+            if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+              return fetchJson(resp.headers.location).then(resolve).catch(reject);
+            }
+            if (resp.statusCode !== 200) return reject(new Error(`HTTP ${resp.statusCode}`));
+            const chunks = [];
+            resp.on('data', (c) => chunks.push(c));
+            resp.on('end', () => resolve(Buffer.concat(chunks).toString()));
+            resp.on('error', reject);
+          }).on('error', reject);
+        });
+        const jsonStr = await fetchJson(`${PAIRING_URL}/api/session/${b64}`);
+        const data = JSON.parse(jsonStr);
+        storedB64 = data.session;
+        console.log(`[DEPLOY] ✅ Session fetched from pairing site (${storedB64.length} chars)`);
+      } catch (e) {
+        console.log(`[DEPLOY] Pairing site fetch failed: ${e.message}`);
+      }
+    }
+
     if (!storedB64) {
       return res.status(400).json({ error: 'Session not found or expired. Please re-pair to get a new session ID.' });
     }
