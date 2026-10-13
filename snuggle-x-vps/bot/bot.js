@@ -82,10 +82,22 @@ function resolvePhoneFromLid(jid) {
 // === Access control ===
 function isOwner(senderJid, participantPn) {
   if (!senderJid) return false;
+  // Direct phone match
   const phone = senderJid.split('@')[0].split(':')[0];
   if (phone === ownerNumber) return true;
-  if (participantPn) { const pn = participantPn.split('@')[0].split(':')[0]; if (pn === ownerNumber) return true; }
-  if (senderJid.endsWith('@lid')) { const c = resolvePhoneFromLid(senderJid); if (c === ownerNumber) return true; }
+  // participantPn match (group messages with LID) — this is the critical fix for groups
+  if (participantPn) {
+    const pn = participantPn.split('@')[0].split(':')[0];
+    if (pn === ownerNumber) return true;
+  }
+  // LID → cached phone match
+  if (senderJid.endsWith('@lid')) {
+    const cached = resolvePhoneFromLid(senderJid);
+    if (cached && cached === ownerNumber) return true;
+    // Also try the raw LID number as a direct comparison (some accounts use long LIDs that match)
+    const lidRaw = senderJid.split('@')[0].split(':')[0];
+    if (lidRaw === ownerNumber) return true;
+  }
   return false;
 }
 function isSudo(senderJid, participantPn) {
@@ -101,6 +113,19 @@ function isSudo(senderJid, participantPn) {
 
 // === Anti-spam cache ===
 const antiSpamCache = new Map();
+
+// === Check if bot is admin in a group ===
+async function isBotAdmin(sock, chatId) {
+  try {
+    const meta = await sock.groupMetadata(chatId);
+    const botId = sock.user.id;
+    const botCleanId = botId.split(':')[0].split('@')[0];
+    return meta.participants.some(p => {
+      const pId = p.id.split(':')[0].split('@')[0];
+      return (p.id === botId || pId === botCleanId) && (p.admin === 'admin' || p.admin === 'superadmin');
+    });
+  } catch { return false; }
+}
 
 // === Menu image/video cache ===
 let menuImageBuffer = null;
@@ -218,6 +243,7 @@ async function start() {
         const settings = getSettings();
         const gs = settings[chatId] || {};
         if (!ownerCheck && !sudoCheck) {
+          const botIsAdmin = await isBotAdmin(sock, chatId);
           // Anti-link
           if (gs.antilink && gs.antilink !== 'off') {
             const urlPattern = /https?:\/\/|www\.|\.com|\.net|\.org|wa\.me\/|chat\.whatsapp\.com/i;
@@ -434,6 +460,7 @@ async function start() {
         }
         case `${prefix}promote`: case '.promote': {
           if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          if (!(await isBotAdmin(sock, chatId))) { await sock.sendMessage(chatId, { text: 'Bot is not admin. Make the bot admin first.' }, { quoted: m }); return; }
           const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user' }, { quoted: m }); return; }
           try { await sock.groupParticipantsUpdate(chatId, [target], 'promote'); await sock.sendMessage(chatId, { text: `✅ Promoted @${target.split('@')[0]}`, mentions: [target] }, { quoted: m }); }
@@ -442,6 +469,7 @@ async function start() {
         }
         case `${prefix}demote`: case '.demote': {
           if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          if (!(await isBotAdmin(sock, chatId))) { await sock.sendMessage(chatId, { text: 'Bot is not admin. Make the bot admin first.' }, { quoted: m }); return; }
           const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
           if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user' }, { quoted: m }); return; }
           try { await sock.groupParticipantsUpdate(chatId, [target], 'demote'); await sock.sendMessage(chatId, { text: `✅ Demoted @${target.split('@')[0]}`, mentions: [target] }, { quoted: m }); }
@@ -458,6 +486,7 @@ async function start() {
         }
         case `${prefix}add`: case '.add': {
           if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          if (!(await isBotAdmin(sock, chatId))) { await sock.sendMessage(chatId, { text: 'Bot is not admin. Make the bot admin first.' }, { quoted: m }); return; }
           const n = args[0]?.replace(/[^0-9]/g, '');
           if (!n) { await sock.sendMessage(chatId, { text: 'Usage: .add <number>' }, { quoted: m }); return; }
           try { const t = `${n}@s.whatsapp.net`; await sock.groupParticipantsUpdate(chatId, [t], 'add'); await sock.sendMessage(chatId, { text: `✅ Added ${n}`, mentions: [t] }, { quoted: m }); }
@@ -726,13 +755,18 @@ async function start() {
 // === Helper: anti-action (delete/warn/kick) ===
 async function doAntiAction(sock, chatId, m, senderJid, senderNumber, action, type) {
   try {
+    const botIsAdmin = await isBotAdmin(sock, chatId);
     if (action === 'delete') {
-      await sock.sendMessage(chatId, { delete: m.key });
-      await sock.sendMessage(chatId, { text: `🚫 @${senderNumber}, links are not allowed here.`, mentions: [senderJid] });
+      try { await sock.sendMessage(chatId, { delete: m.key }); } catch {}
+      await sock.sendMessage(chatId, { text: `🚫 @${senderNumber}, ${type}s are not allowed here.`, mentions: [senderJid] });
     } else if (action === 'warn') {
       await sock.sendMessage(chatId, { text: `⚠️ @${senderNumber}, please don't send ${type}s here.`, mentions: [senderJid] });
     } else if (action === 'kick') {
-      await sock.sendMessage(chatId, { delete: m.key });
+      if (!botIsAdmin) {
+        await sock.sendMessage(chatId, { text: `⚠️ Cannot kick — bot is not admin in this group.\nMake the bot admin to use kick action.` });
+        return;
+      }
+      try { await sock.sendMessage(chatId, { delete: m.key }); } catch {}
       await sock.groupParticipantsUpdate(chatId, [senderJid], 'remove');
       await sock.sendMessage(chatId, { text: `🚫 @${senderNumber} was kicked for sending a ${type}.`, mentions: [senderJid] });
     }
