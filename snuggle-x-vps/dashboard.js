@@ -1,5 +1,6 @@
 // Snuggle X Admin Dashboard — runs on VPS port 2002
 // Admin can: see all session IDs, deploy bots, view running bots, stop bots
+// Also proxies the pairing site (running on port 3000) at /pair/*
 
 const express = require('express');
 const fs = require('fs');
@@ -7,6 +8,7 @@ const path = require('path');
 const zlib = require('zlib');
 const { exec, execSync } = require('child_process');
 const crypto = require('crypto');
+const http = require('http');
 
 const app = express();
 const PORT = 2002;
@@ -336,6 +338,41 @@ function formatUptime(sec) {
 }
 
 app.get('/api/health', (req, res) => res.json({ ok: true, service: 'snuggle-x-dashboard' }));
+
+// === Reverse proxy for the pairing site (running on port 3000) ===
+// This makes the pairing site accessible at http://maglev.proxy.rlwy.net:13558/pair
+// and the pairing API at /pair/api/*
+function proxyToPair(req, res) {
+  const options = {
+    hostname: 'localhost',
+    port: 3000,
+    path: req.originalUrl.replace(/^\/pair/, ''),
+    method: req.method,
+    headers: { ...req.headers, host: 'localhost:3000' },
+  };
+  const proxyReq = http.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+  proxyReq.on('error', (e) => {
+    res.status(502).json({ error: 'Pairing site not available', details: e.message });
+  });
+  if (req.body && Object.keys(req.body).length > 0) {
+    proxyReq.write(JSON.stringify(req.body));
+  }
+  proxyReq.end();
+}
+
+// Pairing site HTML page
+app.get('/pair', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'pair.html'));
+});
+// Pairing static assets
+app.get('/pair-style.css', (req, res) => res.sendFile(path.join(__dirname, 'public', 'pair-style.css')));
+app.get('/pair-system.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'pair-system.js')));
+// Pairing API proxy
+app.all('/pair/api/*', express.json(), proxyToPair);
+app.all('/pair/api/health', proxyToPair);
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
