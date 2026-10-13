@@ -4,6 +4,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const { exec, execSync } = require('child_process');
 const crypto = require('crypto');
 
@@ -59,29 +60,75 @@ app.get('/api/bots', auth, (req, res) => {
 });
 
 // === Deploy a bot from a session ID ===
-app.post('/api/deploy', auth, (req, res) => {
+app.post('/api/deploy', auth, async (req, res) => {
   const { sessionId, label } = req.body;
   if (!sessionId) return res.status(400).json({ error: 'Missing sessionId' });
   if (!sessionId.startsWith('yobbyx:~')) return res.status(400).json({ error: 'Invalid session ID format' });
 
   const b64 = sessionId.replace(/^yobbyx:~/, '');
   let sessionFiles;
-  try {
-    // Convert base64url to standard base64 (new format)
-    let standardB64 = b64.replace(/-/g, '+').replace(/_/g, '/');
-    standardB64 += '='.repeat((4 - standardB64.length % 4) % 4);
-    // Try gzip first (new format)
+
+  // === Check if it's a short ID (12 hex chars), a URL, or base64 (old format) ===
+  if (/^[a-f0-9]{12}$/.test(b64)) {
+    // New short format: fetch from the pairing site
+    const PAIRING_SITE = process.env.PAIRING_SITE_URL || 'https://snuggle-x-pair.onrender.com';
+    const fetchUrl = `${PAIRING_SITE}/session/${b64}`;
+    console.log(`[DEPLOY] Fetching session from: ${fetchUrl}`);
     try {
-      const zlib = require('zlib');
-      const gzipped = Buffer.from(standardB64, 'base64');
+      const https = require('https');
+      const gzipped = await new Promise((resolve, reject) => {
+        https.get(fetchUrl, { timeout: 30000 }, (resp) => {
+          if (resp.statusCode !== 200) return reject(new Error(`HTTP ${resp.statusCode}`));
+          const chunks = [];
+          resp.on('data', (c) => chunks.push(c));
+          resp.on('end', () => resolve(Buffer.concat(chunks)));
+          resp.on('error', reject);
+        }).on('error', reject);
+      });
+      console.log(`[DEPLOY] Downloaded ${gzipped.length} bytes`);
       const json = zlib.gunzipSync(gzipped).toString('utf-8');
       sessionFiles = JSON.parse(json);
     } catch (e) {
-      // Fall back to plain base64 JSON (old format)
-      sessionFiles = JSON.parse(Buffer.from(standardB64, 'base64').toString('utf-8'));
+      return res.status(400).json({ error: `Failed to fetch session: ${e.message}` });
     }
-  } catch {
-    return res.status(400).json({ error: 'Invalid session ID — could not decode' });
+  } else if (b64.startsWith('http')) {
+    // URL format: fetch the gzipped session from the URL
+    console.log(`[DEPLOY] Fetching session from URL: ${b64}`);
+    try {
+      const https = require('https');
+      const fetchUrl = (url) => new Promise((resolve, reject) => {
+        https.get(url, { timeout: 30000 }, (resp) => {
+          if (resp.statusCode >= 300 && resp.statusCode < 400 && resp.headers.location) {
+            return fetchUrl(resp.headers.location).then(resolve).catch(reject);
+          }
+          if (resp.statusCode !== 200) return reject(new Error(`HTTP ${resp.statusCode}`));
+          const chunks = [];
+          resp.on('data', (c) => chunks.push(c));
+          resp.on('end', () => resolve(Buffer.concat(chunks)));
+          resp.on('error', reject);
+        }).on('error', reject);
+      });
+      const gzipped = await fetchUrl(b64);
+      const json = zlib.gunzipSync(gzipped).toString('utf-8');
+      sessionFiles = JSON.parse(json);
+    } catch (e) {
+      return res.status(400).json({ error: `Failed to fetch session from URL: ${e.message}` });
+    }
+  } else {
+    // Old format: decode from base64
+    try {
+      let standardB64 = b64.replace(/-/g, '+').replace(/_/g, '/');
+      standardB64 += '='.repeat((4 - standardB64.length % 4) % 4);
+      try {
+        const gzipped = Buffer.from(standardB64, 'base64');
+        const json = zlib.gunzipSync(gzipped).toString('utf-8');
+        sessionFiles = JSON.parse(json);
+      } catch (e) {
+        sessionFiles = JSON.parse(Buffer.from(standardB64, 'base64').toString('utf-8'));
+      }
+    } catch {
+      return res.status(400).json({ error: 'Invalid session ID — could not decode' });
+    }
   }
 
   // Find owner
