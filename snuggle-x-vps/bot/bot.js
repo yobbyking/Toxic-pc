@@ -1,14 +1,15 @@
 // Snuggle X Bot — runs as a pm2 process per user.
 // Usage: node bot.js <sessionFolder>
 //
-// Features (ported from KLAUS MD):
+// Features:
 //   - LID-aware owner detection (with participantPn + async LID resolution)
 //   - Three-tier access: Owner / Sudo / User
 //   - BOT_MODE: public / silent / groups / dms
-//   - Group anti-commands: antilink, antispam, antibadword, antidelete
-//   - Group commands: tagall, hidetag, promote, demote, kick, mute, unmute
+//   - Anti-commands with sub-options: antilink delete/warn/kick, antispam, antibadword, antidelete, antimention, antitag, antisticker
+//   - Group commands: tagall, hidetag, promote, demote, kick, add
 //   - .url uploads media to tmpfiles.org
-//   - No vCard contact card (just text menu)
+//   - .menu replies with fake contact card (quoted) + menu text (one message)
+//   - Owner commands: autofaketyping, autofakerecording, setmenuimage, setprefix
 
 const {
   useMultiFileAuthState,
@@ -32,114 +33,78 @@ if (!sessionDir || !fs.existsSync(sessionDir)) {
   process.exit(1);
 }
 
-// Read owner from creds.json
 let ownerJid = null;
 let ownerName = 'Not Set!';
 const credsFile = path.join(sessionDir, 'creds.json');
 if (fs.existsSync(credsFile)) {
   try {
     const creds = JSON.parse(fs.readFileSync(credsFile, 'utf-8'));
-    if (creds.me && creds.me.id) {
-      ownerJid = creds.me.id;
-      ownerName = creds.me.name || 'Not Set!';
-    }
+    if (creds.me && creds.me.id) { ownerJid = creds.me.id; ownerName = creds.me.name || 'Not Set!'; }
   } catch {}
 }
 const ownerNumber = ownerJid ? ownerJid.split(':')[0].split('@')[0] : null;
 console.log(`[Snuggle X Bot] Owner: ${ownerNumber} (${ownerJid})`);
-console.log(`[Snuggle X Bot] Session dir: ${sessionDir}`);
 
-// === Mode + sudo + settings files ===
+// === Files ===
 const modeFile = path.join(sessionDir, 'mode.txt');
 const sudoFile = path.join(sessionDir, 'sudos.txt');
 const settingsFile = path.join(sessionDir, 'settings.json');
+const prefixFile = path.join(sessionDir, 'prefix.txt');
+const menuImageFile = path.join(sessionDir, 'menu-image.jpg');
+const autoFile = path.join(sessionDir, 'auto.json');
 
-function getMode() {
-  try { return fs.readFileSync(modeFile, 'utf-8').trim() || 'public'; }
-  catch { return 'public'; }
-}
+function getMode() { try { return fs.readFileSync(modeFile, 'utf-8').trim() || 'public'; } catch { return 'public'; } }
 function setMode(m) { fs.writeFileSync(modeFile, m); }
-
-function getSudos() {
-  try { return fs.readFileSync(sudoFile, 'utf-8').split('\n').filter(x => x.trim()); }
-  catch { return []; }
-}
-function addSudo(num) {
-  const s = getSudos();
-  if (!s.includes(num)) { s.push(num); fs.writeFileSync(sudoFile, s.join('\n')); }
-}
-function removeSudo(num) {
-  const s = getSudos().filter(x => x !== num);
-  fs.writeFileSync(sudoFile, s.join('\n'));
-}
-
-function getSettings() {
-  try { return JSON.parse(fs.readFileSync(settingsFile, 'utf-8')); }
-  catch { return {}; }
-}
+function getSudos() { try { return fs.readFileSync(sudoFile, 'utf-8').split('\n').filter(x => x.trim()); } catch { return []; } }
+function addSudo(n) { const s = getSudos(); if (!s.includes(n)) { s.push(n); fs.writeFileSync(sudoFile, s.join('\n')); } }
+function removeSudo(n) { fs.writeFileSync(sudoFile, getSudos().filter(x => x !== n).join('\n')); }
+function getSettings() { try { return JSON.parse(fs.readFileSync(settingsFile, 'utf-8')); } catch { return {}; } }
 function saveSettings(s) { fs.writeFileSync(settingsFile, JSON.stringify(s, null, 2)); }
+function getPrefix() { try { const p = fs.readFileSync(prefixFile, 'utf-8').trim(); return p === 'none' ? '' : p; } catch { return '.'; } }
+function setPrefix(p) { fs.writeFileSync(prefixFile, p); }
+function getAuto() { try { return JSON.parse(fs.readFileSync(autoFile, 'utf-8')); } catch { return { faketyping: false, fakerecording: false }; } }
+function saveAuto(a) { fs.writeFileSync(autoFile, JSON.stringify(a, null, 2)); }
 
-// === LID cache (ported from KLAUS MD) ===
-const lidPhoneCache = new Map(); // LID → phone
-const phoneLidCache = new Map(); // phone → LID
-
-function cacheLidPhone(lid, phone) {
-  lidPhoneCache.set(lid, phone);
-  phoneLidCache.set(phone, lid);
-}
-
+// === LID cache ===
+const lidPhoneCache = new Map();
+const phoneLidCache = new Map();
+function cacheLidPhone(lid, phone) { lidPhoneCache.set(lid, phone); phoneLidCache.set(phone, lid); }
 function resolvePhoneFromLid(jid) {
   if (!jid || !jid.includes('@lid')) return null;
-  const raw = jid.split('@')[0].split(':')[0];
-  return lidPhoneCache.get(raw) || null;
-}
-
-// === JID normalization ===
-function cleanJid(jid) {
-  if (!jid) return { cleanJid: '', cleanNumber: '', isLid: false };
-  const raw = jid.split('@')[0].split(':')[0];
-  const isLid = jid.endsWith('@lid');
-  return {
-    cleanJid: isLid ? jid : `${raw}@s.whatsapp.net`,
-    cleanNumber: raw,
-    isLid,
-  };
+  return lidPhoneCache.get(jid.split('@')[0].split(':')[0]) || null;
 }
 
 // === Access control ===
 function isOwner(senderJid, participantPn) {
   if (!senderJid) return false;
-  // Direct phone match
   const phone = senderJid.split('@')[0].split(':')[0];
   if (phone === ownerNumber) return true;
-  // participantPn match (group messages with LID)
-  if (participantPn) {
-    const pn = participantPn.split('@')[0].split(':')[0];
-    if (pn === ownerNumber) return true;
-  }
-  // LID → cached phone match
-  if (senderJid.endsWith('@lid')) {
-    const cached = resolvePhoneFromLid(senderJid);
-    if (cached === ownerNumber) return true;
-  }
+  if (participantPn) { const pn = participantPn.split('@')[0].split(':')[0]; if (pn === ownerNumber) return true; }
+  if (senderJid.endsWith('@lid')) { const c = resolvePhoneFromLid(senderJid); if (c === ownerNumber) return true; }
   return false;
 }
-
 function isSudo(senderJid, participantPn) {
   if (!senderJid) return false;
   const sudos = getSudos();
   if (sudos.length === 0) return false;
   const phone = senderJid.split('@')[0].split(':')[0];
   if (sudos.includes(phone)) return true;
-  if (participantPn) {
-    const pn = participantPn.split('@')[0].split(':')[0];
-    if (sudos.includes(pn)) return true;
-  }
-  if (senderJid.endsWith('@lid')) {
-    const cached = resolvePhoneFromLid(senderJid);
-    if (cached && sudos.includes(cached)) return true;
-  }
+  if (participantPn) { const pn = participantPn.split('@')[0].split(':')[0]; if (sudos.includes(pn)) return true; }
+  if (senderJid.endsWith('@lid')) { const c = resolvePhoneFromLid(senderJid); if (c && sudos.includes(c)) return true; }
   return false;
+}
+
+// === Anti-spam cache ===
+const antiSpamCache = new Map();
+
+// === Menu image cache ===
+let menuImageBuffer = null;
+function loadMenuImage() {
+  if (menuImageBuffer) return menuImageBuffer;
+  if (fs.existsSync(menuImageFile)) {
+    try { menuImageBuffer = fs.readFileSync(menuImageFile); return menuImageBuffer; } catch {}
+  }
+  return null;
 }
 
 async function start() {
@@ -149,10 +114,7 @@ async function start() {
 
   const sock = makeWASocket({
     version,
-    auth: {
-      creds: state.creds,
-      keys: makeCacheableSignalKeyStore(state.keys, logger),
-    },
+    auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) },
     printQRInTerminal: false,
     browser: Browsers.ubuntu('Chrome'),
     logger,
@@ -174,63 +136,57 @@ async function start() {
       if (isStarting) {
         isStarting = false;
         setTimeout(() => {
-          try {
-            sock.sendMessage(ownerJid, {
-              text: '*`SNUGGLE X BOT IS NOW LIVE ✅`*\n> snuggle x bot\n\nType *.menu* to see commands.\nType *.all* to see the full command list.',
-            });
-          } catch (e) { console.error('[LIVE] send failed:', e.message); }
+          try { sock.sendMessage(ownerJid, { text: '*`SNUGGLE X BOT IS NOW LIVE ✅`*\n> snuggle x bot\n\nType *.menu* to see commands.\nType *.all* to see the full command list.' }); }
+          catch (e) { console.error('[LIVE] send failed:', e.message); }
         }, 3000);
       }
     }
     if (update.connection === 'close') {
       const code = update.lastDisconnect?.error?.output?.statusCode;
       console.log('[Snuggle X Bot] closed:', code);
-      if (code === DisconnectReason.loggedOut) {
-        console.error('[Snuggle X Bot] ❌ Session logged out. Re-pair.');
-        setTimeout(() => process.exit(1), 3000);
-      } else if (code === 503) {
-        setTimeout(() => start(), 30000);
-      } else {
-        setTimeout(() => start(), 5000);
-      }
+      if (code === DisconnectReason.loggedOut) { console.error('[Snuggle X Bot] ❌ Session logged out.'); setTimeout(() => process.exit(1), 3000); }
+      else if (code === 503) setTimeout(() => start(), 30000);
+      else setTimeout(() => start(), 5000);
     }
   });
 
+  // === Presence (auto fake typing/recording) ===
   sock.ev.on('messages.upsert', async ({ messages }) => {
     try {
       const m = messages[0];
       if (!m || !m.message) return;
 
       const chatId = m.key.remoteJid;
-      // Skip newsletters and broadcasts
       if (chatId && (chatId.includes('newsletter') || chatId.includes('broadcast'))) return;
 
-      // === Determine sender ===
+      // Auto fake typing/recording
+      const auto = getAuto();
+      if (auto.faketyping || auto.fakerecording) {
+        try {
+          const presence = auto.faketyping ? 'composing' : 'recording';
+          await sock.sendPresenceUpdate(presence, chatId);
+        } catch {}
+      }
+
       const isGroup = chatId && chatId.endsWith('@g.us');
       const participant = m.key.participant || chatId;
       const participantPn = m.key.participantPn || null;
-
-      // Cache LID → phone mapping
       if (participantPn && participant && participant.endsWith('@lid')) {
-        const lidRaw = participant.split('@')[0].split(':')[0];
-        const pn = participantPn.split('@')[0].split(':')[0];
-        cacheLidPhone(lidRaw, pn);
+        cacheLidPhone(participant.split('@')[0].split(':')[0], participantPn.split('@')[0].split(':')[0]);
       }
 
-      // === Self-chat handling ===
       const isLid = chatId && chatId.endsWith('@lid');
       const senderPhone = chatId ? chatId.split('@')[0].split(':')[0] : '';
-      const isSelfChat = (senderPhone === ownerNumber && chatId && chatId.endsWith('@s.whatsapp.net')) ||
-                         (isLid && m.key.fromMe);
+      const isSelfChat = (senderPhone === ownerNumber && chatId && chatId.endsWith('@s.whatsapp.net')) || (isLid && m.key.fromMe);
       if (m.key.fromMe && !isSelfChat) return;
 
-      // === Extract sender info ===
       let senderJid = isGroup ? participant : chatId;
       const senderNumber = senderJid ? senderJid.split(':')[0].split('@')[0] : '';
       const pushName = m.pushName || (isSelfChat ? 'You' : 'User');
       const ownerCheck = isOwner(senderJid, participantPn) || isSelfChat;
       const sudoCheck = isSudo(senderJid, participantPn);
       const mode = getMode();
+      const prefix = getPrefix();
 
       // === Extract text ===
       const msg = m.message;
@@ -246,65 +202,69 @@ async function start() {
       const raw = text.trim();
       if (!raw) return;
       const lower = raw.toLowerCase();
-      const ctx = isGroup ? `group ${chatId.split('@')[0]} from ${senderNumber}` : `dm ${senderNumber}`;
-      console.log(`[CMD] ${ctx} (${pushName})${ownerCheck ? ' [OWNER]' : sudoCheck ? ' [SUDO]' : ''}: ${raw}`);
 
-      // === ANTI features for groups (before command processing) ===
+      // === Anti-features for groups ===
       if (isGroup) {
         const settings = getSettings();
-        const groupKey = chatId;
-        const groupSettings = settings[groupKey] || {};
-
-        // Anti-link
-        if (groupSettings.antilink && !ownerCheck && !sudoCheck) {
-          const urlPattern = /https?:\/\/|www\.|\.com|\.net|\.org|wa\.me\/|chat\.whatsapp\.com/i;
-          if (urlPattern.test(raw)) {
-            try {
-              await sock.sendMessage(chatId, { delete: m.key });
-              await sock.groupParticipantsUpdate(chatId, [senderJid], 'remove');
-              await sock.sendMessage(chatId, { text: `🚫 @${senderNumber} was removed for sending a link`, mentions: [senderJid] });
-              console.log(`[ANTI] Removed ${senderNumber} for link in ${chatId}`);
-            } catch (e) { console.log('[ANTI] antilink error:', e.message); }
-            return;
+        const gs = settings[chatId] || {};
+        if (!ownerCheck && !sudoCheck) {
+          // Anti-link
+          if (gs.antilink && gs.antilink !== 'off') {
+            const urlPattern = /https?:\/\/|www\.|\.com|\.net|\.org|wa\.me\/|chat\.whatsapp\.com/i;
+            if (urlPattern.test(raw)) {
+              await doAntiAction(sock, chatId, m, senderJid, senderNumber, gs.antilink, 'link');
+              return;
+            }
           }
-        }
-
-        // Anti-badword
-        if (groupSettings.antibadword && !ownerCheck && !sudoCheck) {
-          const badwords = ['fuck', 'shit', 'bitch', 'asshole', 'dick', 'pussy', 'cunt'];
-          if (badwords.some(w => lower.includes(w))) {
-            try {
-              await sock.sendMessage(chatId, { delete: m.key });
-              await sock.sendMessage(chatId, { text: `⚠️ @${senderNumber}, bad words are not allowed here.`, mentions: [senderJid] });
-              console.log(`[ANTI] Badword from ${senderNumber} in ${chatId}`);
-            } catch (e) { console.log('[ANTI] antibadword error:', e.message); }
-            return;
+          // Anti-mention
+          if (gs.antimention && gs.antimention !== 'off') {
+            if (msg.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0 || /@\d+/.test(raw)) {
+              await doAntiAction(sock, chatId, m, senderJid, senderNumber, gs.antimention, 'mention');
+              return;
+            }
           }
-        }
-
-        // Anti-spam (simple: warn if > 5 messages in 10 seconds)
-        if (groupSettings.antispam && !ownerCheck && !sudoCheck) {
-          const now = Date.now();
-          if (!antiSpamCache.has(chatId + senderNumber)) antiSpamCache.set(chatId + senderNumber, []);
-          const arr = antiSpamCache.get(chatId + senderNumber);
-          arr.push(now);
-          // Keep only last 10 seconds
-          while (arr.length > 0 && arr[0] < now - 10000) arr.shift();
-          if (arr.length > 5) {
-            try {
-              await sock.sendMessage(chatId, { delete: m.key });
-              await sock.sendMessage(chatId, { text: `⚠️ @${senderNumber}, stop spamming!`, mentions: [senderJid] });
-              console.log(`[ANTI] Spam from ${senderNumber} in ${chatId}`);
-            } catch (e) { console.log('[ANTI] antispam error:', e.message); }
-            return;
+          // Anti-tag (anti-tagall)
+          if (gs.antitag && gs.antitag !== 'off') {
+            if (msg.extendedTextMessage?.contextInfo?.mentionedJid?.length > 5) {
+              await doAntiAction(sock, chatId, m, senderJid, senderNumber, gs.antitag, 'tag');
+              return;
+            }
+          }
+          // Anti-sticker
+          if (gs.antisticker && gs.antisticker !== 'off') {
+            if (msg.stickerMessage) {
+              await doAntiAction(sock, chatId, m, senderJid, senderNumber, gs.antisticker, 'sticker');
+              return;
+            }
+          }
+          // Anti-badword
+          if (gs.antibadword && gs.antibadword !== 'off') {
+            const badwords = ['fuck', 'shit', 'bitch', 'asshole', 'dick', 'pussy', 'cunt'];
+            if (badwords.some(w => lower.includes(w))) {
+              await doAntiAction(sock, chatId, m, senderJid, senderNumber, gs.antibadword, 'badword');
+              return;
+            }
+          }
+          // Anti-spam
+          if (gs.antispam && gs.antispam !== 'off') {
+            const now = Date.now();
+            const key = chatId + senderNumber;
+            if (!antiSpamCache.has(key)) antiSpamCache.set(key, []);
+            const arr = antiSpamCache.get(key);
+            arr.push(now);
+            while (arr.length > 0 && arr[0] < now - 10000) arr.shift();
+            if (arr.length > 5) {
+              await doAntiAction(sock, chatId, m, senderJid, senderNumber, gs.antispam, 'spam');
+              return;
+            }
           }
         }
       }
 
       // === Parse command ===
-      const strippedRaw = raw.replace(/^[*_`~]+/, '').trim();
-      const cmd = strippedRaw.toLowerCase().split(/\s+/)[0];
-      const args = strippedRaw.split(/\s+/).slice(1);
+      const cmdText = raw.replace(/^[*_`~]+/, '').trim();
+      const cmd = cmdText.toLowerCase().split(/\s+/)[0];
+      const args = cmdText.split(/\s+/).slice(1);
       const argText = args.join(' ');
 
       // === BOT_MODE checks ===
@@ -312,238 +272,221 @@ async function start() {
       if (mode === 'groups' && !isGroup && !ownerCheck && !sudoCheck) return;
       if (mode === 'dms' && isGroup && !ownerCheck && !sudoCheck) return;
 
-      // === PUBLIC commands (.menu, .all) — work for everyone ===
-      if (cmd === '.menu' || cmd === '.m' || cmd === '!menu' || cmd === '/menu' || lower === 'menu') {
-        // Send menu as a contact card with the menu text as caption
-        // The contact card shows the OWNER's info — users can tap "Save" to add the owner
+      // === PUBLIC commands ===
+      if (cmd === `${prefix}menu` || cmd === '.menu' || lower === 'menu') {
         const fakeContact = createFakeContact(ownerNumber, ownerName);
         const menuText = buildMenu(pushName);
+        const menuImg = loadMenuImage();
         try {
-          await sock.sendMessage(chatId, {
-            contacts: {
-              displayName: ownerName && ownerName !== 'Not Set!' ? ownerName : 'Yobby King',
-              contacts: [{ vcard: fakeContact.message.contactMessage.vcard }],
-            },
-          }, { quoted: m });
+          if (menuImg) {
+            await sock.sendMessage(chatId, { image: menuImg, caption: menuText }, { quoted: fakeContact });
+          } else {
+            await sock.sendMessage(chatId, { text: menuText }, { quoted: fakeContact });
+          }
         } catch (e) {
-          console.error('Contact card send failed:', e.message);
+          console.error('Menu send failed:', e.message);
+          await sock.sendMessage(chatId, { text: menuText }, { quoted: m });
         }
-        // Send the menu text right after the contact card
-        await sock.sendMessage(chatId, { text: menuText }, { quoted: fakeContact });
         return;
       }
-      if (cmd === '.all' || cmd === '!all' || cmd === '/all' || lower === 'all') {
+      if (cmd === `${prefix}all` || cmd === '.all' || lower === 'all') {
         await sock.sendMessage(chatId, { text: buildAllMenu() }, { quoted: m });
         return;
       }
-      if (cmd === '.ping' || cmd === '!ping' || cmd === '/ping') {
+      if (cmd === `${prefix}ping` || cmd === '.ping') {
         const t = Date.now();
         await sock.sendMessage(chatId, { text: `*PONG* 🏓\nLatency: ${Date.now() - t}ms` }, { quoted: m });
         return;
       }
-      if (cmd === '.help' || cmd === '!help' || cmd === '/help') {
-        await sock.sendMessage(chatId, { text: `Type *.menu* for the menu, or *.all* for the full command list.` }, { quoted: m });
+      if (cmd === `${prefix}help` || cmd === '.help') {
+        await sock.sendMessage(chatId, { text: `Type *${prefix}menu* for the menu, or *${prefix}all* for the full command list.` }, { quoted: m });
         return;
       }
-      if (cmd === '.whoami' || cmd === '!whoami' || cmd === '/whoami') {
-        await sock.sendMessage(chatId, {
-          text: `*You are* ${pushName}\n*Number:* ${senderNumber}\n*Status:* ${ownerCheck ? 'Owner 👑' : sudoCheck ? 'Sudo 🔑' : 'User'}`,
-        }, { quoted: m });
+      if (cmd === `${prefix}whoami` || cmd === '.whoami') {
+        await sock.sendMessage(chatId, { text: `*You are* ${pushName}\n*Number:* ${senderNumber}\n*Status:* ${ownerCheck ? 'Owner 👑' : sudoCheck ? 'Sudo 🔑' : 'User'}` }, { quoted: m });
         return;
       }
 
-      // === ACCESS GATE — owner/sudo only beyond this point ===
+      // === ACCESS GATE ===
       if (!ownerCheck && !sudoCheck) {
-        // Non-owner + non-sudo in private mode → deny
         if (mode === 'private' || mode === 'silent') {
-          await sock.sendMessage(chatId, {
-            text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅',
-          }, { quoted: m });
+          await sock.sendMessage(chatId, { text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅' }, { quoted: m });
           return;
         }
-        // In public mode, non-owners can use some commands (handled above)
-        // For owner/sudo-only commands below, deny:
-        const ownerOnlyCommands = ['.alive', '.owner', '.mode', '.addsudo', '.delsudo', '.sudolist', '.tagall', '.hidetag', '.promote', '.demote', '.kick', '.add', '.mute', '.unmute', '.antilink', '.antispam', '.antibadword', '.antidelete', '.antilinkoff', '.antispamoff', '.antibadwordoff', '.antideleteoff'];
-        if (ownerOnlyCommands.some(c => cmd === c || cmd === c.replace('.', '!') || cmd === c.replace('.', '/'))) {
-          await sock.sendMessage(chatId, {
-            text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅',
-          }, { quoted: m });
+        const ownerOnlyCmds = ['alive','owner','mode','addsudo','delsudo','sudolist','tagall','hidetag','promote','demote','kick','add','antilink','antispam','antibadword','antidelete','antimention','antitag','antisticker','autofaketyping','autofakerecording','setmenuimage','setprefix'];
+        if (ownerOnlyCmds.some(c => cmd === `.${c}` || cmd === `!${c}` || cmd === `/${c}`)) {
+          await sock.sendMessage(chatId, { text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅' }, { quoted: m });
           return;
         }
-        // Unknown command for non-owner
         if (cmd.startsWith('.') || cmd.startsWith('!') || cmd.startsWith('/')) {
-          await sock.sendMessage(chatId, {
-            text: `Unknown command: ${cmd}\nType *.menu* to see the menu.`,
-          }, { quoted: m });
+          await sock.sendMessage(chatId, { text: `Unknown command: ${cmd}\nType *${prefix}menu* to see the menu.` }, { quoted: m });
         }
         return;
       }
 
       // === OWNER/SUDO commands ===
       switch (cmd) {
-        case '.alive': case '!alive': case '/alive': {
-          await sock.sendMessage(chatId, { text: buildAlive() }, { quoted: m });
-          break;
-        }
-        case '.owner': case '!owner': case '/owner': {
-          await sock.sendMessage(chatId, { text: buildOwner() }, { quoted: m });
-          break;
-        }
-        case '.mode': case '!mode': case '/mode': {
-          if (argText === 'private' || argText === 'public' || argText === 'silent' || argText === 'groups' || argText === 'dms') {
-            if (!ownerCheck) {
-              await sock.sendMessage(chatId, { text: '> *only owner can change mode* 🚫' }, { quoted: m });
-              return;
-            }
+        case `${prefix}alive`: case '.alive': await sock.sendMessage(chatId, { text: buildAlive() }, { quoted: m }); break;
+        case `${prefix}owner`: case '.owner': await sock.sendMessage(chatId, { text: buildOwner() }, { quoted: m }); break;
+
+        case `${prefix}mode`: case '.mode': {
+          if (['private','public','silent','groups','dms'].includes(argText)) {
+            if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
             setMode(argText);
             await sock.sendMessage(chatId, { text: `*MODE CHANGED* ✅\n> Bot is now in *${argText}* mode` }, { quoted: m });
           } else {
-            await sock.sendMessage(chatId, { text: `*Current mode:* ${getMode()}\n\nUsage:\n*.mode public* — anyone can use commands\n*.mode private* — only owner/sudo\n*.mode silent* — only owner/sudo (no public commands)\n*.mode groups* — only respond in groups\n*.mode dms* — only respond in DMs` }, { quoted: m });
+            await sock.sendMessage(chatId, { text: `*Current mode:* ${getMode()}\n*Current prefix:* ${prefix === '' ? '(none)' : prefix}\n\nUsage:\n*.mode public/private/silent/groups/dms*` }, { quoted: m });
           }
           break;
         }
 
-        // === Sudo management (owner only) ===
-        case '.addsudo': case '!addsudo': case '/addsudo': {
+        // === Sudo management ===
+        case `${prefix}addsudo`: case '.addsudo': {
           if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
-          const num = args[0]?.replace(/[^0-9]/g, '');
-          if (!num) { await sock.sendMessage(chatId, { text: 'Usage: .addsudo <number>' }, { quoted: m }); return; }
-          addSudo(num);
-          await sock.sendMessage(chatId, { text: `✅ Added ${num} as sudo` }, { quoted: m });
+          const n = args[0]?.replace(/[^0-9]/g, '');
+          if (!n) { await sock.sendMessage(chatId, { text: 'Usage: .addsudo <number>' }, { quoted: m }); return; }
+          addSudo(n); await sock.sendMessage(chatId, { text: `✅ Added ${n} as sudo` }, { quoted: m }); break;
+        }
+        case `${prefix}delsudo`: case '.delsudo': {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          const n = args[0]?.replace(/[^0-9]/g, '');
+          if (!n) { await sock.sendMessage(chatId, { text: 'Usage: .delsudo <number>' }, { quoted: m }); return; }
+          removeSudo(n); await sock.sendMessage(chatId, { text: `✅ Removed ${n} from sudo` }, { quoted: m }); break;
+        }
+        case `${prefix}sudolist`: case '.sudolist': {
+          const s = getSudos();
+          await sock.sendMessage(chatId, { text: `*Sudo users (${s.length}):*\n${s.length > 0 ? s.map(x => '• ' + x).join('\n') : 'None'}` }, { quoted: m }); break;
+        }
+
+        // === Group management ===
+        case `${prefix}tagall`: case '.tagall': {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          try {
+            const meta = await sock.groupMetadata(chatId);
+            const mentions = meta.participants.map(p => p.id);
+            const t = `┏▣ *SNUGGLE X TAG ALL* ▣\n┗▣ Total: ${mentions.length} members\n\n` + mentions.map(p => '➽ @' + p.split('@')[0]).join('\n');
+            await sock.sendMessage(chatId, { text: t, mentions });
+          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
           break;
         }
-        case '.delsudo': case '!delsudo': case '/delsudo': {
-          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
-          const num = args[0]?.replace(/[^0-9]/g, '');
-          if (!num) { await sock.sendMessage(chatId, { text: 'Usage: .delsudo <number>' }, { quoted: m }); return; }
-          removeSudo(num);
-          await sock.sendMessage(chatId, { text: `✅ Removed ${num} from sudo` }, { quoted: m });
+        case `${prefix}hidetag`: case '.hidetag': {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          try {
+            const meta = await sock.groupMetadata(chatId);
+            const mentions = meta.participants.map(p => p.id);
+            await sock.sendMessage(chatId, { text: argText || '👥', mentions });
+          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
           break;
         }
-        case '.sudolist': case '!sudolist': case '/sudolist': {
-          const sudos = getSudos();
-          await sock.sendMessage(chatId, { text: `*Sudo users (${sudos.length}):*\n${sudos.length > 0 ? sudos.map(s => '• ' + s).join('\n') : 'None'}` }, { quoted: m });
+        case `${prefix}promote`: case '.promote': {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user' }, { quoted: m }); return; }
+          try { await sock.groupParticipantsUpdate(chatId, [target], 'promote'); await sock.sendMessage(chatId, { text: `✅ Promoted @${target.split('@')[0]}`, mentions: [target] }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}demote`: case '.demote': {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user' }, { quoted: m }); return; }
+          try { await sock.groupParticipantsUpdate(chatId, [target], 'demote'); await sock.sendMessage(chatId, { text: `✅ Demoted @${target.split('@')[0]}`, mentions: [target] }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}kick`: case '.kick': {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+          if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user' }, { quoted: m }); return; }
+          try { await sock.groupParticipantsUpdate(chatId, [target], 'remove'); await sock.sendMessage(chatId, { text: `✅ Kicked @${target.split('@')[0]}`, mentions: [target] }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          break;
+        }
+        case `${prefix}add`: case '.add': {
+          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+          const n = args[0]?.replace(/[^0-9]/g, '');
+          if (!n) { await sock.sendMessage(chatId, { text: 'Usage: .add <number>' }, { quoted: m }); return; }
+          try { const t = `${n}@s.whatsapp.net`; await sock.groupParticipantsUpdate(chatId, [t], 'add'); await sock.sendMessage(chatId, { text: `✅ Added ${n}`, mentions: [t] }, { quoted: m }); }
+          catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
           break;
         }
 
-        // === Group management commands ===
-        case '.tagall': case '!tagall': case '/tagall': {
-          if (!isGroup) { await sock.sendMessage(chatId, { text: 'This command only works in groups' }, { quoted: m }); return; }
-          try {
-            const groupMetadata = await sock.groupMetadata(chatId);
-            const mentions = groupMetadata.participants.map(p => p.id);
-            const text = `┏▣ *SNUGGLE X TAG ALL* ▣\n┗▣ Total: ${mentions.length} members\n\n` + mentions.map(p => '➽ @' + p.split('@')[0]).join('\n');
-            await sock.sendMessage(chatId, { text, mentions });
-          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+        // === Anti-commands with sub-options ===
+        case `${prefix}antilink`: case '.antilink': { await toggleAnti(sock, chatId, m, args, 'antilink', 'link'); break; }
+        case `${prefix}antispam`: case '.antispam': { await toggleAnti(sock, chatId, m, args, 'antispam', 'spam'); break; }
+        case `${prefix}antibadword`: case '.antibadword': { await toggleAnti(sock, chatId, m, args, 'antibadword', 'badword'); break; }
+        case `${prefix}antidelete`: case '.antidelete': { await toggleAnti(sock, chatId, m, args, 'antidelete', 'delete'); break; }
+        case `${prefix}antimention`: case '.antimention': { await toggleAnti(sock, chatId, m, args, 'antimention', 'mention'); break; }
+        case `${prefix}antitag`: case '.antitag': { await toggleAnti(sock, chatId, m, args, 'antitag', 'tag'); break; }
+        case `${prefix}antisticker`: case '.antisticker': { await toggleAnti(sock, chatId, m, args, 'antisticker', 'sticker'); break; }
+
+        // === Auto fake typing/recording ===
+        case `${prefix}autofaketyping`: case '.autofaketyping': {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          const a = getAuto();
+          if (argText === 'all on' || argText === 'on') { a.faketyping = true; saveAuto(a); await sock.sendMessage(chatId, { text: '✅ Auto fake typing ON' }, { quoted: m }); }
+          else if (argText === 'all off' || argText === 'off') { a.faketyping = false; saveAuto(a); await sock.sendMessage(chatId, { text: '❌ Auto fake typing OFF' }, { quoted: m }); }
+          else { await sock.sendMessage(chatId, { text: `*Auto fake typing:* ${a.faketyping ? 'ON ✅' : 'OFF ❌'}\n\nUsage:\n.autofaketyping all on\n.autofaketyping all off` }, { quoted: m }); }
           break;
         }
-        case '.hidetag': case '!hidetag': case '/hidetag': {
-          if (!isGroup) { await sock.sendMessage(chatId, { text: 'This command only works in groups' }, { quoted: m }); return; }
-          try {
-            const groupMetadata = await sock.groupMetadata(chatId);
-            const mentions = groupMetadata.participants.map(p => p.id);
-            const tagText = argText || '👥';
-            await sock.sendMessage(chatId, { text: tagText, mentions });
-          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+        case `${prefix}autofakerecording`: case '.autofakerecording': {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          const a = getAuto();
+          if (argText === 'all on' || argText === 'on') { a.fakerecording = true; saveAuto(a); await sock.sendMessage(chatId, { text: '✅ Auto fake recording ON' }, { quoted: m }); }
+          else if (argText === 'all off' || argText === 'off') { a.fakerecording = false; saveAuto(a); await sock.sendMessage(chatId, { text: '❌ Auto fake recording OFF' }, { quoted: m }); }
+          else { await sock.sendMessage(chatId, { text: `*Auto fake recording:* ${a.fakerecording ? 'ON ✅' : 'OFF ❌'}\n\nUsage:\n.autofakerecording all on\n.autofakerecording all off` }, { quoted: m }); }
           break;
         }
-        case '.promote': case '!promote': case '/promote': {
-          if (!isGroup) { await sock.sendMessage(chatId, { text: 'This command only works in groups' }, { quoted: m }); return; }
-          const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-          if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user to promote' }, { quoted: m }); return; }
+
+        // === Set menu image ===
+        case `${prefix}setmenuimage`: case '.setmenuimage': {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
           try {
-            await sock.groupParticipantsUpdate(chatId, [target], 'promote');
-            await sock.sendMessage(chatId, { text: `✅ Promoted @${target.split('@')[0]}`, mentions: [target] }, { quoted: m });
-          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
-          break;
-        }
-        case '.demote': case '!demote': case '/demote': {
-          if (!isGroup) { await sock.sendMessage(chatId, { text: 'This command only works in groups' }, { quoted: m }); return; }
-          const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-          if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user to demote' }, { quoted: m }); return; }
-          try {
-            await sock.groupParticipantsUpdate(chatId, [target], 'demote');
-            await sock.sendMessage(chatId, { text: `✅ Demoted @${target.split('@')[0]}`, mentions: [target] }, { quoted: m });
-          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
-          break;
-        }
-        case '.kick': case '!kick': case '/kick': {
-          if (!isGroup) { await sock.sendMessage(chatId, { text: 'This command only works in groups' }, { quoted: m }); return; }
-          const target = m.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-          if (!target) { await sock.sendMessage(chatId, { text: 'Mention a user to kick' }, { quoted: m }); return; }
-          try {
-            await sock.groupParticipantsUpdate(chatId, [target], 'remove');
-            await sock.sendMessage(chatId, { text: `✅ Kicked @${target.split('@')[0]}`, mentions: [target] }, { quoted: m });
-          } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
-          break;
-        }
-        case '.add': case '!add': case '/add': {
-          if (!isGroup) { await sock.sendMessage(chatId, { text: 'This command only works in groups' }, { quoted: m }); return; }
-          const num = args[0]?.replace(/[^0-9]/g, '');
-          if (!num) { await sock.sendMessage(chatId, { text: 'Usage: .add <number>' }, { quoted: m }); return; }
-          try {
-            const target = `${num}@s.whatsapp.net`;
-            const resp = await sock.groupParticipantsUpdate(chatId, [target], 'add');
-            await sock.sendMessage(chatId, { text: `✅ Added ${num}`, mentions: [target] }, { quoted: m });
+            if (args[0]?.startsWith('http')) {
+              // Download from URL
+              const axios = require('axios');
+              const res = await axios.get(args[0], { responseType: 'arraybuffer', timeout: 30000 });
+              fs.writeFileSync(menuImageFile, Buffer.from(res.data));
+              menuImageBuffer = null; // Force reload
+              await sock.sendMessage(chatId, { text: '✅ Menu image set from URL' }, { quoted: m });
+            } else if (msg.imageMessage) {
+              // Reply to an image
+              const buf = await downloadMediaMessage(m, 'buffer', {}, { logger: P({ level: 'silent' }) });
+              fs.writeFileSync(menuImageFile, Buffer.from(buf));
+              menuImageBuffer = null;
+              await sock.sendMessage(chatId, { text: '✅ Menu image set from replied image' }, { quoted: m });
+            } else {
+              await sock.sendMessage(chatId, { text: 'Usage:\n.setmenuimage <url> — set from URL\n.setmenuimage (reply to image) — set from replied image' }, { quoted: m });
+            }
           } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
           break;
         }
 
-        // === Anti-commands (toggle) ===
-        case '.antilink': case '!antilink': case '/antilink': {
-          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
-          const s = getSettings(); const gs = s[chatId] || {};
-          gs.antilink = !gs.antilink; s[chatId] = gs; saveSettings(s);
-          await sock.sendMessage(chatId, { text: `*ANTILINK ${gs.antilink ? 'ON ✅' : 'OFF ❌'}*` }, { quoted: m });
-          break;
-        }
-        case '.antispam': case '!antispam': case '/antispam': {
-          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
-          const s = getSettings(); const gs = s[chatId] || {};
-          gs.antispam = !gs.antispam; s[chatId] = gs; saveSettings(s);
-          await sock.sendMessage(chatId, { text: `*ANTISPAM ${gs.antispam ? 'ON ✅' : 'OFF ❌'}*` }, { quoted: m });
-          break;
-        }
-        case '.antibadword': case '!antibadword': case '/antibadword': {
-          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
-          const s = getSettings(); const gs = s[chatId] || {};
-          gs.antibadword = !gs.antibadword; s[chatId] = gs; saveSettings(s);
-          await sock.sendMessage(chatId, { text: `*ANTIBADWORD ${gs.antibadword ? 'ON ✅' : 'OFF ❌'}*` }, { quoted: m });
-          break;
-        }
-        case '.antidelete': case '!antidelete': case '/antidelete': {
-          if (!isGroup) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
-          const s = getSettings(); const gs = s[chatId] || {};
-          gs.antidelete = !gs.antidelete; s[chatId] = gs; saveSettings(s);
-          await sock.sendMessage(chatId, { text: `*ANTIDELETE ${gs.antidelete ? 'ON ✅' : 'OFF ❌'}*` }, { quoted: m });
+        // === Set prefix ===
+        case `${prefix}setprefix`: case '.setprefix': {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          const newPrefix = argText.trim();
+          if (newPrefix === 'none' || newPrefix === '') { setPrefix('none'); await sock.sendMessage(chatId, { text: '✅ Prefix removed (no prefix needed for commands)' }, { quoted: m }); }
+          else { setPrefix(newPrefix); await sock.sendMessage(chatId, { text: `✅ Prefix set to: ${newPrefix}` }, { quoted: m }); }
           break;
         }
 
         // === Media commands ===
-        case '.sticker': case '!sticker': case '/sticker': {
+        case `${prefix}sticker`: case '.sticker': {
           if (msg.imageMessage || msg.videoMessage || msg.viewOnceMessage?.message?.imageMessage || msg.viewOnceMessage?.message?.videoMessage) {
-            try {
-              const buf = await downloadMediaMessage(m, 'buffer', {}, { logger: P({ level: 'silent' }) });
-              await sock.sendMessage(chatId, { sticker: Buffer.from(buf) }, { quoted: m });
-            } catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
-          } else {
-            await sock.sendMessage(chatId, { text: 'Send an image/video with caption .sticker' }, { quoted: m });
-          }
+            try { const buf = await downloadMediaMessage(m, 'buffer', {}, { logger: P({ level: 'silent' }) }); await sock.sendMessage(chatId, { sticker: Buffer.from(buf) }, { quoted: m }); }
+            catch (e) { await sock.sendMessage(chatId, { text: `Failed: ${e.message}` }, { quoted: m }); }
+          } else { await sock.sendMessage(chatId, { text: 'Send an image/video with caption .sticker' }, { quoted: m }); }
           break;
         }
-        case '.url': case '!url': case '/url': {
-          await handleUrlCommand(sock, chatId, m, msg);
-          break;
-        }
+        case `${prefix}url`: case '.url': { await handleUrlCommand(sock, chatId, m, msg); break; }
 
         default:
           if (cmd.startsWith('.') || cmd.startsWith('!') || cmd.startsWith('/')) {
-            await sock.sendMessage(chatId, { text: `Unknown command: ${cmd}\nType *.menu* or *.all* for the list.` }, { quoted: m });
+            await sock.sendMessage(chatId, { text: `Unknown command: ${cmd}\nType *${prefix}menu* or *${prefix}all* for the list.` }, { quoted: m });
           }
       }
-    } catch (e) {
-      console.error('[messages.upsert error]', e.message);
-    }
+    } catch (e) { console.error('[messages.upsert error]', e.message); }
   });
 
   // === Anti-delete handler ===
@@ -554,18 +497,10 @@ async function start() {
         const chatId = update.key?.remoteJid;
         if (!chatId || !chatId.endsWith('@g.us')) continue;
         const gs = settings[chatId] || {};
-        if (!gs.antidelete) continue;
-        // If message was deleted
-        if (update.update?.message?.protocolMessage?.type === 0 || update.update?.status === 'deleted') {
-          // Re-send the deleted message (if we have it in store)
+        if (!gs.antidelete || gs.antidelete === 'off') continue;
+        if (update.update?.message?.protocolMessage?.type === 0) {
           try {
-            const key = update.key;
-            const msg = await sock.loadMessage?.(chatId, key.id);
-            if (msg) {
-              await sock.sendMessage(chatId, { text: `🚫 *Anti-Delete:* A message was deleted by ${key.participant || 'someone'}` });
-              // Forward the deleted message
-              await sock.sendMessage(chatId, { forward: msg });
-            }
+            await sock.sendMessage(chatId, { text: `🚫 *Anti-Delete:* A message was deleted by ${update.key.participant?.split('@')[0] || 'someone'}` });
           } catch (e) { console.log('[ANTIDELETE] error:', e.message); }
         }
       }
@@ -573,80 +508,77 @@ async function start() {
   });
 }
 
-// === Anti-spam cache ===
-const antiSpamCache = new Map();
-
-// ============================================================
-// === .url command — uploads media to tmpfiles.org ===
-// ============================================================
-async function handleUrlCommand(sock, chatId, m, msg) {
-  const hasMedia = msg.imageMessage || msg.videoMessage || msg.audioMessage ||
-                   msg.documentMessage || msg.stickerMessage ||
-                   msg.viewOnceMessage?.message?.imageMessage ||
-                   msg.viewOnceMessage?.message?.videoMessage;
-  if (!hasMedia) {
-    await sock.sendMessage(chatId, {
-      text: '📎 *Send media with caption .url*\n\nSupported: image, video, audio, document, sticker\n\nI will upload it and give you a public URL.',
-    }, { quoted: m });
-    return;
-  }
-  await sock.sendMessage(chatId, { text: '⏳ Uploading to get URL...' }, { quoted: m });
+// === Helper: anti-action (delete/warn/kick) ===
+async function doAntiAction(sock, chatId, m, senderJid, senderNumber, action, type) {
   try {
-    // Use baileys' downloadMediaMessage function (not sock.downloadMediaMessage)
+    if (action === 'delete') {
+      await sock.sendMessage(chatId, { delete: m.key });
+      await sock.sendMessage(chatId, { text: `🚫 @${senderNumber}, links are not allowed here.`, mentions: [senderJid] });
+    } else if (action === 'warn') {
+      await sock.sendMessage(chatId, { text: `⚠️ @${senderNumber}, please don't send ${type}s here.`, mentions: [senderJid] });
+    } else if (action === 'kick') {
+      await sock.sendMessage(chatId, { delete: m.key });
+      await sock.groupParticipantsUpdate(chatId, [senderJid], 'remove');
+      await sock.sendMessage(chatId, { text: `🚫 @${senderNumber} was kicked for sending a ${type}.`, mentions: [senderJid] });
+    }
+    console.log(`[ANTI] ${action} ${type} from ${senderNumber} in ${chatId}`);
+  } catch (e) { console.log('[ANTI] error:', e.message); }
+}
+
+// === Helper: toggle anti-commands ===
+async function toggleAnti(sock, chatId, m, args, key, label) {
+  if (!chatId.endsWith('@g.us')) { await sock.sendMessage(chatId, { text: 'Group only' }, { quoted: m }); return; }
+  const s = getSettings();
+  const gs = s[chatId] || {};
+  const sub = args[0]?.toLowerCase();
+  if (sub === 'delete' && args[1] === 'on') { gs[key] = 'delete'; s[chatId] = gs; saveSettings(s); await sock.sendMessage(chatId, { text: `✅ Anti-${label} set to DELETE` }, { quoted: m }); }
+  else if (sub === 'warn' && args[1] === 'on') { gs[key] = 'warn'; s[chatId] = gs; saveSettings(s); await sock.sendMessage(chatId, { text: `✅ Anti-${label} set to WARN` }, { quoted: m }); }
+  else if (sub === 'kick' && args[1] === 'on') { gs[key] = 'kick'; s[chatId] = gs; saveSettings(s); await sock.sendMessage(chatId, { text: `✅ Anti-${label} set to KICK` }, { quoted: m }); }
+  else if (sub === 'on') { gs[key] = 'delete'; s[chatId] = gs; saveSettings(s); await sock.sendMessage(chatId, { text: `✅ Anti-${label} ON (default: delete)\nUse: .${key} delete/warn/kick on` }, { quoted: m }); }
+  else if (sub === 'off') { gs[key] = 'off'; s[chatId] = gs; saveSettings(s); await sock.sendMessage(chatId, { text: `❌ Anti-${label} OFF` }, { quoted: m }); }
+  else { await sock.sendMessage(chatId, { text: `*Anti-${label}:* ${gs[key] || 'off'}\n\nUsage:\n.${key} delete on\n.${key} warn on\n.${key} kick on\n.${key} off` }, { quoted: m }); }
+}
+
+// === .url command ===
+async function handleUrlCommand(sock, chatId, m, msg) {
+  const hasMedia = msg.imageMessage || msg.videoMessage || msg.audioMessage || msg.documentMessage || msg.stickerMessage ||
+                   msg.viewOnceMessage?.message?.imageMessage || msg.viewOnceMessage?.message?.videoMessage;
+  if (!hasMedia) { await sock.sendMessage(chatId, { text: '📎 Send media with caption .url' }, { quoted: m }); return; }
+  await sock.sendMessage(chatId, { text: '⏳ Uploading...' }, { quoted: m });
+  try {
     const buf = await downloadMediaMessage(m, 'buffer', {}, { logger: P({ level: 'silent' }) });
     const buffer = Buffer.from(buf);
-    let mime = 'application/octet-stream';
-    let ext = 'bin';
+    let mime = 'application/octet-stream', ext = 'bin';
     if (msg.imageMessage) { mime = msg.imageMessage.mimetype || 'image/jpeg'; ext = mime.split('/')[1] || 'jpg'; }
-    else if (msg.videoMessage) { mime = msg.videoMessage.mimetype || 'video/mp4'; ext = mime.split('/')[1] || 'mp4'; }
+    else if (msg.videoMessage) { mime = msg.videoMessage.mimetype || 'video/mp4'; ext = 'mp4'; }
     else if (msg.audioMessage) { mime = msg.audioMessage.mimetype || 'audio/mpeg'; ext = 'mp3'; }
     else if (msg.documentMessage) { mime = msg.documentMessage.mimetype || 'application/octet-stream'; ext = msg.documentMessage.fileName?.split('.').pop() || 'bin'; }
     else if (msg.stickerMessage) { mime = msg.stickerMessage.mimetype || 'image/webp'; ext = 'webp'; }
-    else if (msg.viewOnceMessage?.message?.imageMessage) { mime = msg.viewOnceMessage.message.imageMessage.mimetype || 'image/jpeg'; ext = 'jpg'; }
-    else if (msg.viewOnceMessage?.message?.videoMessage) { mime = msg.viewOnceMessage.message.videoMessage.mimetype || 'video/mp4'; ext = 'mp4'; }
     const FormData = require('form-data');
     const axios = require('axios');
     const form = new FormData();
-    const safeExt = ext.replace(/[^a-zA-Z0-9]/g, '').slice(0, 5) || 'bin';
-    form.append('file', buffer, `upload.${safeExt}`);
-    const upRes = await axios.post('https://tmpfiles.org/api/v1/upload', form, {
-      headers: form.getHeaders(),
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity,
-      timeout: 60000,
-    });
+    form.append('file', buffer, `upload.${ext.replace(/[^a-zA-Z0-9]/g, '').slice(0, 5) || 'bin'}`);
+    const upRes = await axios.post('https://tmpfiles.org/api/v1/upload', form, { headers: form.getHeaders(), maxContentLength: Infinity, maxBodyLength: Infinity, timeout: 60000 });
     if (upRes.data?.data?.url) {
-      const rawUrl = upRes.data.data.url;
-      const directUrl = rawUrl.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
-      await sock.sendMessage(chatId, {
-        text: `✅ *Media uploaded!*\n\n🔗 *URL:*\n${directUrl}\n\n_Size: ${(buffer.length / 1024).toFixed(1)} KB_\n_Type: ${mime}_`,
-      }, { quoted: m });
-    } else {
-      throw new Error('Upload returned no URL');
-    }
-  } catch (e) {
-    console.error('[.url] upload failed:', e.message);
-    await sock.sendMessage(chatId, { text: `❌ Failed to upload: ${e.message}\n\nTry again with a smaller file.` }, { quoted: m });
-  }
+      const directUrl = upRes.data.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+      await sock.sendMessage(chatId, { text: `✅ *Media uploaded!*\n\n🔗 *URL:*\n${directUrl}\n\n_Size: ${(buffer.length / 1024).toFixed(1)} KB_\n_Type: ${mime}_` }, { quoted: m });
+    } else { throw new Error('No URL returned'); }
+  } catch (e) { await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m }); }
 }
 
-// ============================================================
-// === MENU BUILDERS ===
-// ============================================================
+// === Menu builders ===
 function buildMenu(pushName) {
   const mem = process.memoryUsage();
   const memMB = (mem.rss / 1024 / 1024).toFixed(0);
   const totalRAM = Math.round(os.totalmem() / 1024 / 1024 / 1024);
   const ramPct = Math.min(100, Math.round((mem.rss / os.totalmem()) * 100));
-  const ramBarLen = 10;
-  const ramFilled = Math.round((ramPct / 100) * ramBarLen);
-  const ramBar = '█'.repeat(ramFilled) + '░'.repeat(ramBarLen - ramFilled);
-  const mode = getMode();
+  const ramBar = '█'.repeat(Math.round(ramPct / 10)) + '░'.repeat(10 - Math.round(ramPct / 10));
+  const prefix = getPrefix();
   return `┏▣ ◈ *_SNUGGLE-X_* ◈     
 ┃ *\`ᴏᴡɴᴇʀ\`* : ${ownerName}
 ┃ *\`ɴᴜᴍʙᴇʀ\`* : ${ownerNumber}
-┃ *\`ᴘʀᴇғɪx\`* : [ . ]
-┃ *\`ᴍᴏᴅᴇ\`* : ${mode === 'private' ? 'Private' : mode}
+┃ *\`ᴘʀᴇғɪx\`* : [ ${prefix === '' ? 'no prefix' : prefix} ]
+┃ *\`ᴍᴏᴅᴇ\`* : ${getMode()}
 ┃ *\`ᴜsᴀɢᴇ\`* : ${memMB} MB of ${totalRAM} GB  
 ┃ *\`ʀᴀᴍ\`*: [${ramBar}] ${ramPct}%
 ┃ *\`ᴜᴘᴛɪᴍᴇ\`* : ${formatUptime(process.uptime())}
@@ -660,65 +592,70 @@ function buildMenu(pushName) {
 }
 
 function buildAllMenu() {
+  const prefix = getPrefix();
+  const p = prefix === '' ? '' : prefix;
   return `╭═══════════════════════✦═╗
 ║   *SNUGGLE X • FULL COMMANDS*   ║
 ╚═══════════════════════✦═╝
 
 ╭─ ❲ 🌐 PUBLIC ❳
-├ .menu — show main menu
-├ .all — show full command list
-├ .ping — latency check
-├ .help — quick help
-├ .whoami — your info
+├ ${p}menu — show main menu
+├ ${p}all — show full command list
+├ ${p}ping — latency check
+├ ${p}help — quick help
+├ ${p}whoami — your info
 ╰────────────────────
 
 ╭─ ❲ 👑 OWNER ❳
-├ .alive — bot status
-├ .owner — owner info
-├ .mode — show current mode
-├ .mode public/private/silent/groups/dms
-├ .addsudo <number> — add sudo user
-├ .delsudo <number> — remove sudo
-├ .sudolist — list sudo users
+├ ${p}alive — bot status
+├ ${p}owner — owner info
+├ ${p}mode — show/change mode
+├ ${p}addsudo/delsudo/sudolist
+├ ${p}autofaketyping all on/off
+├ ${p}autofakerecording all on/off
+├ ${p}setmenuimage <url|reply>
+├ ${p}setprefix <prefix|none>
 ╰────────────────────
 
 ╭─ ❲ 👥 GROUP ❳
-├ .tagall — tag everyone
-├ .hidetag <text> — hidden tag
-├ .promote @user — promote
-├ .demote @user — demote
-├ .kick @user — kick member
-├ .add <number> — add member
+├ ${p}tagall — tag everyone
+├ ${p}hidetag <text> — hidden tag
+├ ${p}promote/demote/kick @user
+├ ${p}add <number>
 ╰────────────────────
 
 ╭─ ❲ 🛡 ANTI ❳
-├ .antilink — toggle anti-link
-├ .antispam — toggle anti-spam
-├ .antibadword — toggle anti-badword
-├ .antidelete — toggle anti-delete
+├ ${p}antilink delete/warn/kick on
+├ ${p}antispam delete/warn/kick on
+├ ${p}antibadword delete/warn/kick on
+├ ${p}antidelete on/off
+├ ${p}antimention delete/warn/kick on
+├ ${p}antitag delete/warn/kick on
+├ ${p}antisticker delete/warn/kick on
+├ (use "off" to turn off any)
 ╰────────────────────
 
 ╭─ ❲ 🎨 MEDIA ❳
-├ .sticker — convert image/video to sticker
-├ .url — upload media and get a public URL
+├ ${p}sticker — image/video to sticker
+├ ${p}url — upload media, get URL
 ╰────────────────────
 
 *SNUGGLE X* · Created by Yobby King
 > Instagram @yobby_mking
-> Contact dev: 0795314221 / 0181163563`;
+> Dev: 0795314221 / 0181163563`;
 }
 
 function buildAlive() {
   const mem = process.memoryUsage();
-  const memMB = (mem.rss / 1024 / 1024).toFixed(0);
   return `*SNUGGLE X IS ALIVE ✅*
 > snuggle x bot
 > status: online 🟢
 > owner: ${ownerName}
 > number: ${ownerNumber}
 > mode: ${getMode()}
+> prefix: ${getPrefix() === '' ? 'none' : getPrefix()}
 > uptime: ${formatUptime(process.uptime())}
-> memory: ${memMB} MB`;
+> memory: ${(mem.rss / 1024 / 1024).toFixed(0)} MB`;
 }
 
 function buildOwner() {
@@ -726,7 +663,7 @@ function buildOwner() {
 > Name: Yobby King
 > Number: ${ownerNumber}
 > Instagram: @yobby_mking
-> Contact dev: 0795314221 / 0181163563`;
+> Dev: 0795314221 / 0181163563`;
 }
 
 function formatUptime(s) {
