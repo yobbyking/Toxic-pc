@@ -64,6 +64,10 @@ function getPrefix() { try { const p = fs.readFileSync(prefixFile, 'utf-8').trim
 function setPrefix(p) { fs.writeFileSync(prefixFile, p); }
 function getAuto() { try { return JSON.parse(fs.readFileSync(autoFile, 'utf-8')); } catch { return { faketyping: false, fakerecording: false }; } }
 function saveAuto(a) { fs.writeFileSync(autoFile, JSON.stringify(a, null, 2)); }
+function getChatbot() { try { const s = getSettings(); return s.chatbot === true; } catch { return false; } }
+function setChatbot(on) { const s = getSettings(); s.chatbot = on; saveSettings(s); }
+function getGeminiKey() { try { return fs.readFileSync(path.join(sessionDir, 'gemini-key.txt'), 'utf-8').trim(); } catch { return ''; } }
+function setGeminiKey(k) { fs.writeFileSync(path.join(sessionDir, 'gemini-key.txt'), k); }
 
 // === LID cache ===
 const lidPhoneCache = new Map();
@@ -272,6 +276,37 @@ async function start() {
       if (mode === 'groups' && !isGroup && !ownerCheck && !sudoCheck) return;
       if (mode === 'dms' && isGroup && !ownerCheck && !sudoCheck) return;
 
+      // === AI Chatbot (DMs only — reply with Gemini AI) ===
+      if (getChatbot() && !isGroup && !cmd.startsWith(prefix) && !cmd.startsWith('.') && !cmd.startsWith('!') && !cmd.startsWith('/')) {
+        const geminiKey = getGeminiKey();
+        if (geminiKey) {
+          try {
+            await sock.sendPresenceUpdate('composing', chatId);
+            const axios = require('axios');
+            const aiRes = await axios.post(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+              {
+                contents: [{
+                  parts: [{
+                    text: `You are Snuggle X, a helpful WhatsApp bot assistant. Reply concisely (max 200 chars). User: ${raw}`,
+                  }],
+                }],
+              },
+              { timeout: 30000, headers: { 'Content-Type': 'application/json' } }
+            );
+            const aiText = aiRes.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (aiText) {
+              await sock.sendMessage(chatId, { text: aiText.trim() }, { quoted: m });
+              console.log(`[CHATBOT] ${senderNumber}: "${raw.slice(0, 40)}" → "${aiText.slice(0, 40)}..."`);
+              return;
+            }
+          } catch (e) {
+            console.error('[CHATBOT] Gemini error:', e.message);
+            // Fall through to command handling
+          }
+        }
+      }
+
       // === PUBLIC commands ===
       if (cmd === `${prefix}menu` || cmd === '.menu' || lower === 'menu') {
         const fakeContact = createFakeContact(ownerNumber, ownerName);
@@ -471,6 +506,27 @@ async function start() {
           break;
         }
 
+        // === AI Chatbot ===
+        case `${prefix}chatbot`: case '.chatbot': {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          if (argText === 'on') {
+            if (!getGeminiKey()) { await sock.sendMessage(chatId, { text: '❌ Set Gemini API key first: .setgeminikey <key>\n\nGet a free key at: https://aistudio.google.com/app/apikey' }, { quoted: m }); return; }
+            setChatbot(true); await sock.sendMessage(chatId, { text: '✅ AI Chatbot ON — I will reply to DMs using Gemini AI' }, { quoted: m });
+          } else if (argText === 'off') {
+            setChatbot(false); await sock.sendMessage(chatId, { text: '❌ AI Chatbot OFF' }, { quoted: m });
+          } else {
+            await sock.sendMessage(chatId, { text: `*AI Chatbot:* ${getChatbot() ? 'ON ✅' : 'OFF ❌'}\n\nUsage:\n.chatbot on\n.chatbot off` }, { quoted: m });
+          }
+          break;
+        }
+        case `${prefix}setgeminikey`: case '.setgeminikey': {
+          if (!ownerCheck) { await sock.sendMessage(chatId, { text: '> *only owner* 🚫' }, { quoted: m }); return; }
+          const key = argText.trim();
+          if (!key) { await sock.sendMessage(chatId, { text: `Usage: .setgeminikey <key>\n\nGet a free key at: https://aistudio.google.com/app/apikey\nCurrent key: ${getGeminiKey() ? 'set ✅' : 'not set ❌'}` }, { quoted: m }); return; }
+          setGeminiKey(key); await sock.sendMessage(chatId, { text: '✅ Gemini API key set' }, { quoted: m });
+          break;
+        }
+
         // === Media commands ===
         case `${prefix}sticker`: case '.sticker': {
           if (msg.imageMessage || msg.videoMessage || msg.viewOnceMessage?.message?.imageMessage || msg.viewOnceMessage?.message?.videoMessage) {
@@ -539,21 +595,55 @@ async function toggleAnti(sock, chatId, m, args, key, label) {
   else { await sock.sendMessage(chatId, { text: `*Anti-${label}:* ${gs[key] || 'off'}\n\nUsage:\n.${key} delete on\n.${key} warn on\n.${key} kick on\n.${key} off` }, { quoted: m }); }
 }
 
-// === .url command ===
+// === .url command — uploads media to tmpfiles.org ===
+// Works in two ways:
+//   1. Send media with caption .url
+//   2. Reply to a media message with .url
 async function handleUrlCommand(sock, chatId, m, msg) {
-  const hasMedia = msg.imageMessage || msg.videoMessage || msg.audioMessage || msg.documentMessage || msg.stickerMessage ||
-                   msg.viewOnceMessage?.message?.imageMessage || msg.viewOnceMessage?.message?.videoMessage;
-  if (!hasMedia) { await sock.sendMessage(chatId, { text: '📎 Send media with caption .url' }, { quoted: m }); return; }
+  // Check if the current message has media
+  let hasMedia = msg.imageMessage || msg.videoMessage || msg.audioMessage || msg.documentMessage || msg.stickerMessage ||
+                 msg.viewOnceMessage?.message?.imageMessage || msg.viewOnceMessage?.message?.videoMessage;
+  let targetMsg = m;
+
+  // If no media on this message, check if it's a reply to a media message
+  if (!hasMedia) {
+    const quoted = msg.extendedTextMessage?.contextInfo?.quotedMessage;
+    if (quoted) {
+      hasMedia = quoted.imageMessage || quoted.videoMessage || quoted.audioMessage || quoted.documentMessage || quoted.stickerMessage ||
+                 quoted.viewOnceMessage?.message?.imageMessage || quoted.viewOnceMessage?.message?.videoMessage;
+      if (hasMedia) {
+        // Reconstruct a fake message for downloadMediaMessage
+        targetMsg = {
+          key: {
+            remoteJid: chatId,
+            id: msg.extendedTextMessage.contextInfo.stanzaId,
+            participant: msg.extendedTextMessage.contextInfo.participant,
+            fromMe: msg.extendedTextMessage.contextInfo.fromMe || false,
+          },
+          message: quoted,
+        };
+      }
+    }
+  }
+
+  if (!hasMedia) {
+    await sock.sendMessage(chatId, {
+      text: `📎 *Usage:*\n\n1. Send a media file with caption \`${getPrefix() === '' ? '' : getPrefix()}url\`\n2. Reply to a media message with \`${getPrefix() === '' ? '' : getPrefix()}url\`\n\nSupported: image, video, audio, document, sticker`,
+    }, { quoted: m });
+    return;
+  }
   await sock.sendMessage(chatId, { text: '⏳ Uploading...' }, { quoted: m });
   try {
-    const buf = await downloadMediaMessage(m, 'buffer', {}, { logger: P({ level: 'silent' }) });
+    const buf = await downloadMediaMessage(targetMsg, 'buffer', {}, { logger: P({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage });
     const buffer = Buffer.from(buf);
+    if (!buffer || buffer.length === 0) throw new Error('Empty buffer — could not download media');
     let mime = 'application/octet-stream', ext = 'bin';
-    if (msg.imageMessage) { mime = msg.imageMessage.mimetype || 'image/jpeg'; ext = mime.split('/')[1] || 'jpg'; }
-    else if (msg.videoMessage) { mime = msg.videoMessage.mimetype || 'video/mp4'; ext = 'mp4'; }
-    else if (msg.audioMessage) { mime = msg.audioMessage.mimetype || 'audio/mpeg'; ext = 'mp3'; }
-    else if (msg.documentMessage) { mime = msg.documentMessage.mimetype || 'application/octet-stream'; ext = msg.documentMessage.fileName?.split('.').pop() || 'bin'; }
-    else if (msg.stickerMessage) { mime = msg.stickerMessage.mimetype || 'image/webp'; ext = 'webp'; }
+    const qm = targetMsg.message;
+    if (qm.imageMessage) { mime = qm.imageMessage.mimetype || 'image/jpeg'; ext = mime.split('/')[1] || 'jpg'; }
+    else if (qm.videoMessage) { mime = qm.videoMessage.mimetype || 'video/mp4'; ext = 'mp4'; }
+    else if (qm.audioMessage) { mime = qm.audioMessage.mimetype || 'audio/mpeg'; ext = 'mp3'; }
+    else if (qm.documentMessage) { mime = qm.documentMessage.mimetype || 'application/octet-stream'; ext = qm.documentMessage.fileName?.split('.').pop() || 'bin'; }
+    else if (qm.stickerMessage) { mime = qm.stickerMessage.mimetype || 'image/webp'; ext = 'webp'; }
     const FormData = require('form-data');
     const axios = require('axios');
     const form = new FormData();
@@ -615,6 +705,8 @@ function buildAllMenu() {
 ├ ${p}autofakerecording all on/off
 ├ ${p}setmenuimage <url|reply>
 ├ ${p}setprefix <prefix|none>
+├ ${p}chatbot on/off — AI replies to DMs
+├ ${p}setgeminikey <key> — set Gemini API key
 ╰────────────────────
 
 ╭─ ❲ 👥 GROUP ❳
