@@ -358,7 +358,7 @@ async function start() {
       }
 
       // === Small delay before responding in DMs (prevents "Waiting for this message") ===
-      if (!isGroup) { await new Promise(r => setTimeout(r, 500)); }
+      // No delay — respond immediately
 
       // === PUBLIC commands (work for everyone) ===
       if (cmd === `${prefix}menu` || (prefix && lower === 'menu')) {
