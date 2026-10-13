@@ -1441,14 +1441,13 @@ async function showLoadingAnimation(sock, chatId, m) {
       '*Loading* • • • •',
     ];
     for (let i = 0; i < stages.length; i++) {
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 400));
       try {
-        await sock.sendMessage(chatId, { text: stages[i], edit: loadingMsg.key }, { quoted: m });
+        await sock.sendMessage(chatId, { text: stages[i], edit: loadingMsg.key });
       } catch {}
     }
-    await new Promise(r => setTimeout(r, 500));
-    // Delete the loading message
-    try { await sock.sendMessage(chatId, { delete: loadingMsg.key }); } catch {}
+    await new Promise(r => setTimeout(r, 400));
+    // DON'T delete — keep the loading message as a reply target for the menu
     return loadingMsg;
   } catch (e) {
     console.error('Loading animation error:', e.message);
