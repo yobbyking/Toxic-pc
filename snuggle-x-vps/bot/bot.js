@@ -271,7 +271,7 @@ async function start() {
           }
           // Anti-mention (detects @mentions and status tags)
           if (gs.antimention && gs.antimention !== 'off') {
-            const hasMention = msg.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0 || /@\d+/.test(raw) || raw.includes('@status') || raw.includes('@broadcast');
+            const hasMention = (msg.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0) || /@\d+/.test(raw) || raw.toLowerCase().includes('@status') || raw.toLowerCase().includes('@broadcast') || raw.toLowerCase().includes('status@');
             if (hasMention) {
               await doAntiAction(sock, chatId, m, senderJid, senderNumber, gs.antimention, 'mention');
               return;
@@ -322,7 +322,7 @@ async function start() {
       const argText = args.join(' ');
 
       // === BOT_MODE checks ===
-      if (mode === 'silent' && !ownerCheck && !sudoCheck) return;
+      if ((mode === 'silent' || mode === 'private') && !ownerCheck && !sudoCheck) return;
       if (mode === 'groups' && !isGroup && !ownerCheck && !sudoCheck) return;
       if (mode === 'dms' && isGroup && !ownerCheck && !sudoCheck) return;
 
@@ -357,8 +357,11 @@ async function start() {
         }
       }
 
+      // === Small delay before responding in DMs (prevents "Waiting for this message") ===
+      if (!isGroup) { await new Promise(r => setTimeout(r, 1000)); }
+
       // === PUBLIC commands (work for everyone) ===
-      if (cmd === `${prefix}menu` || cmd === '.menu' || lower === 'menu') {
+      if (cmd === `${prefix}menu` || (prefix && lower === 'menu')) {
         const fakeContact = createFakeContact(ownerNumber, ownerName);
         const menuText = buildMenu(pushName);
         const menuImg = loadMenuImage();
@@ -378,29 +381,29 @@ async function start() {
         }
         return;
       }
-      if (cmd === `${prefix}all` || cmd === '.all' || lower === 'all') {
+      if (cmd === `${prefix}all` || (prefix && lower === 'all')) {
         await sock.sendMessage(chatId, { text: buildAllMenu() }, { quoted: m });
         return;
       }
-      if (cmd === `${prefix}ping` || cmd === '.ping') {
+      if (cmd === `${prefix}ping`) {
         const t = Date.now();
         await sock.sendMessage(chatId, { text: `*PONG* 🏓\nLatency: ${Date.now() - t}ms` }, { quoted: m });
         return;
       }
-      if (cmd === `${prefix}help` || cmd === '.help') {
+      if (cmd === `${prefix}help`) {
         await sock.sendMessage(chatId, { text: `Type *${prefix}menu* for the menu, or *${prefix}all* for the full command list.` }, { quoted: m });
         return;
       }
-      if (cmd === `${prefix}whoami` || cmd === '.whoami') {
+      if (cmd === `${prefix}whoami`) {
         await sock.sendMessage(chatId, { text: `*You are* ${pushName}\n*Number:* ${senderNumber}\n*Status:* ${ownerCheck ? 'Owner 👑' : sudoCheck ? 'Sudo 🔑' : 'User'}` }, { quoted: m });
         return;
       }
       // Sticker and URL are PUBLIC — anyone can use them
-      if (cmd === `${prefix}sticker` || cmd === '.sticker') {
+      if (cmd === `${prefix}sticker`) {
         await handleStickerCommand(sock, chatId, m, msg);
         return;
       }
-      if (cmd === `${prefix}url` || cmd === '.url') {
+      if (cmd === `${prefix}url`) {
         await handleUrlCommand(sock, chatId, m, msg);
         return;
       }
@@ -412,11 +415,11 @@ async function start() {
           return;
         }
         const ownerOnlyCmds = ['alive','owner','mode','addsudo','delsudo','sudolist','tagall','hidetag','promote','demote','kick','add','antilink','antispam','antibadword','antidelete','antimention','antitag','antisticker','autofaketyping','autofakerecording','setmenuimage','setmenuvideo','setprefix','chatbot','setgeminikey','vv'];
-        if (ownerOnlyCmds.some(c => cmd === `.${c}` || cmd === `!${c}` || cmd === `/${c}` || cmd === `${prefix}${c}`)) {
+        if (ownerOnlyCmds.some(c => cmd === `${prefix}${c}`)) {
           await sock.sendMessage(chatId, { text: '> *only sudo access 🚫*\n> Get yours 0181163563 ✅' }, { quoted: m });
           return;
         }
-        if (cmd.startsWith('.') || cmd.startsWith('!') || cmd.startsWith('/') || (prefix && cmd.startsWith(prefix))) {
+        if (prefix && cmd.startsWith(prefix)) {
           await sock.sendMessage(chatId, { text: `Unknown command: ${cmd}\nType *${prefix}menu* to see the menu.` }, { quoted: m });
         }
         return;
@@ -837,7 +840,7 @@ async function start() {
         // === Media commands are PUBLIC (handled above) ===
 
         default:
-          if (cmd.startsWith('.') || cmd.startsWith('!') || cmd.startsWith('/') || (prefix && cmd.startsWith(prefix))) {
+          if (prefix && cmd.startsWith(prefix)) {
             await sock.sendMessage(chatId, { text: `Unknown command: ${cmd}\nType *${prefix}menu* or *${prefix}all* for the list.` }, { quoted: m });
           }
       }
