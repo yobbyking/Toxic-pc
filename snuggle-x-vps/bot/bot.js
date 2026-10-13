@@ -1471,148 +1471,150 @@ function buildAllMenu() {
 ║                                    ║
 ╚══════════════════════════════════╝
 
-╭━━━ ❰ 🌐 P U B L I C ❱ ━━━━━━━━
-┃
-┃  ${p}menu ─── Main menu
-┃  ${p}all ──── Full command list
-┃  ${p}ping ─── Latency check
-┃  ${p}help ──── Quick help
-┃  ${p}whoami ─ Your session info
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+> ╭━━━ ❰ 🌐 P U B L I C ❱ ━━━━━━━━
+> ┃
+> ┃  ${p}menu ─── Main menu
+> ┃  ${p}all ──── Full command list
+> ┃  ${p}ping ─── Latency check
+> ┃  ${p}help ──── Quick help
+> ┃  ${p}whoami ─ Your session info
+> ┃
+> ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭━━━ ❰ 👑 O W N E R ❱ ━━━━━━━━
-┃
-┃  ${p}alive ─── Bot status
-┃  ${p}owner ──── Owner info
-┃  ${p}mode ───── Show/change mode
-┃  ${p}addsudo ── Add sudo user
-┃  ${p}delsudo ── Remove sudo user
-┃  ${p}sudolist ─ List sudo users
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+> ╭━━━ ❰ 👑 O W N E R ❱ ━━━━━━━━
+> ┃
+> ┃  ${p}alive ─── Bot status
+> ┃  ${p}owner ──── Owner info
+> ┃  ${p}mode ───── Show/change mode
+> ┃  ${p}addsudo ── Add sudo user
+> ┃  ${p}delsudo ── Remove sudo user
+> ┃  ${p}sudolist ─ List sudo users
+> ┃
+> ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭━━━ ❰ 👥 G R O U P ❱ ━━━━━━━━
-┃
-┃  ${p}tagall ──── Tag all members
-┃  ${p}hidetag ──── Silent tag
-┃  ${p}promote ──── Make admin
-┃  ${p}demote ───── Remove admin
-┃  ${p}kick ─────── Remove member
-┃  ${p}add ──────── Add member
-┃  ${p}kickall ──── Kick ALL members
-┃  ${p}kickadmins ── Kick all admins
-┃  ${p}fak @user ── Remove from VC
-┃  ${p}warn @user ── Warn (3=kick)
-┃  ${p}resetwarn ── Reset warnings
-┃  ${p}mute/close ── Mute group
-┃  ${p}unmute/open ─ Unmute group
-┃  ${p}lock ─────── Lock settings
-┃  ${p}unlock ───── Unlock settings
-┃  ${p}tagadmin ──── Tag all admins
-┃  ${p}totalmembers ─ Member count
-┃  ${p}setppgroup ── Set group PP
-┃  ${p}setgroupname ─ Set group name
-┃  ${p}setdesc ──── Set group desc
-┃  ${p}ginfo ────── Group info
-┃  ${p}grouplink ── Get invite link
-┃  ${p}resetlink ── Reset invite link
-┃  ${p}poll <q|o1|o2> ─ Create poll
-┃  ${p}vcf ──────── Save contacts
-┃  ${p}afk <reason> ─ AFK mode
-┃  ${p}unafk ────── Turn off AFK
-┃  ${p}join <link> ─ Join group
-┃  ${p}leave ────── Leave group
-┃  ${p}getpp ────── Get profile pic
-┃
-╭━━━ ❰ 🛡 A N T I ❱ ━━━━━━━━━
-┃
-┃  ${p}antilink delete/warn/kick on
-┃  ${p}antispam delete/warn/kick on
-┃  ${p}antibadword delete/warn/kick on
-┃  ${p}antidelete on/off (all on/off)
-┃  ${p}antimention delete/warn/kick on
-┃  ${p}antitag delete/warn/kick on
-┃  ${p}antisticker delete/warn/kick on
-┃  _Use "off" to disable any_
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+> ╭━━━ ❰ 👥 G R O U P ❱ ━━━━━━━━
+> ┃
+> ┃  ${p}tagall ──── Tag all members
+> ┃  ${p}hidetag ──── Silent tag
+> ┃  ${p}promote ──── Make admin
+> ┃  ${p}demote ───── Remove admin
+> ┃  ${p}kick ─────── Remove member
+> ┃  ${p}add ──────── Add member
+> ┃  ${p}kickall ──── Kick ALL members
+> ┃  ${p}kickadmins ── Kick all admins
+> ┃  ${p}fak @user ── Remove from VC
+> ┃  ${p}warn @user ── Warn (3=kick)
+> ┃  ${p}resetwarn ── Reset warnings
+> ┃  ${p}mute/close ── Mute group
+> ┃  ${p}unmute/open ─ Unmute group
+> ┃  ${p}lock ─────── Lock settings
+> ┃  ${p}unlock ───── Unlock settings
+> ┃  ${p}tagadmin ──── Tag all admins
+> ┃  ${p}totalmembers ─ Member count
+> ┃  ${p}setppgroup ── Set group PP
+> ┃  ${p}setgroupname ─ Set group name
+> ┃  ${p}setdesc ──── Set group desc
+> ┃  ${p}ginfo ────── Group info
+> ┃  ${p}grouplink ── Get invite link
+> ┃  ${p}resetlink ── Reset invite link
+> ┃  ${p}poll <q|o1|o2> ─ Create poll
+> ┃  ${p}vcf ──────── Save contacts
+> ┃  ${p}afk <reason> ─ AFK mode
+> ┃  ${p}unafk ────── Turn off AFK
+> ┃  ${p}join <link> ─ Join group
+> ┃  ${p}leave ────── Leave group
+> ┃  ${p}getpp ────── Get profile pic
+> ┃
+> ╭━━━ ❰ 🛡 A N T I ❱ ━━━━━━━━━
+> ┃
+> ┃  ${p}antilink delete/warn/kick on
+> ┃  ${p}antispam delete/warn/kick on
+> ┃  ${p}antibadword delete/warn/kick on
+> ┃  ${p}antidelete on/off (all on/off)
+> ┃  ${p}antimention delete/warn/kick on
+> ┃  ${p}antitag delete/warn/kick on
+> ┃  ${p}antisticker delete/warn/kick on
+> ┃  _Use "off" to disable any_
+> ┃
+> ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭━━━ ❰ 📥 D O W N L O A D ❱ ━━
-┃
-┃  ${p}song <query> ── YouTube MP3
-┃  ${p}video <query> ── YouTube MP4
-┃  ${p}ytmp3 <url> ──── YT to MP3
-┃  ${p}ytmp4 <url> ──── YT to MP4
-┃  ${p}instagram <url> ─ IG post/reel
-┃  ${p}tiktok <url> ─── TikTok video
-┃  ${p}facebook <url> ── FB video
-┃  ${p}twitter <url> ─── Twitter/X video
-┃  ${p}mediafire <url> ─ MediaFire file
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+> ╭━━━ ❰ 📥 D O W N L O A D ❱ ━━━
+> ┃
+> ┃  ${p}song <query> ── YouTube MP3
+> ┃  ${p}video <query> ── YouTube MP4
+> ┃  ${p}ytmp3 <url> ──── YT to MP3
+> ┃  ${p}ytmp4 <url> ──── YT to MP4
+> ┃  ${p}instagram <url> ─ IG post/reel
+> ┃  ${p}tiktok <url> ─── TikTok video
+> ┃  ${p}facebook <url> ── FB video
+> ┃  ${p}twitter <url> ─── Twitter/X video
+> ┃  ${p}mediafire <url> ─ MediaFire file
+> ┃
+> ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭━━━ ❰ 🎨 M E D I A ❱ ━━━━━━━━
-┃
-┃  ${p}sticker ──── Media to sticker
-┃  ${p}url ──────── Upload media, get URL
-┃  ${p}tts <text> ── Text to speech
-┃  ${p}translate ─── Translate text
-┃  ${p}vv ──────── Unlock view-once
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+> ╭━━━ ❰ 🎨 M E D I A ❱ ━━━━━━━━
+> ┃
+> ┃  ${p}sticker ──── Media to sticker
+> ┃  ${p}url ──────── Upload media, get URL
+> ┃  ${p}tts <text> ── Text to speech
+> ┃  ${p}translate ─── Translate text
+> ┃  ${p}vv ──────── Unlock in same chat
+> ┃  ${p}vv2 ─────── Unlock to owner DM
+> ┃  ${p}vv3 ─────── Unlock to URL
+> ┃
+> ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭━━━ ❰ 🎮 F U N ❱ ━━━━━━━━━━━
-┃
-┃  ${p}8ball ───── Magic 8-ball
-┃  ${p}truth ───── Truth question
-┃  ${p}dare ────── Dare challenge
-┃  ${p}joke ────── Random joke
-┃  ${p}quote ───── Random quote
-┃  ${p}fact ────── Random fact
-┃  ${p}pickupline ─ Pickup line
-┃  ${p}rps <r|p|s> ─ Rock Paper Scissors
-┃  ${p}ship <n1> <n2> ─ Compatibility
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+> ╭━━━ ❰ 🎮 F U N ❱ ━━━━━━━━━━━
+> ┃
+> ┃  ${p}8ball ───── Magic 8-ball
+> ┃  ${p}truth ───── Truth question
+> ┃  ${p}dare ────── Dare challenge
+> ┃  ${p}joke ────── Random joke
+> ┃  ${p}quote ───── Random quote
+> ┃  ${p}fact ────── Random fact
+> ┃  ${p}pickupline ─ Pickup line
+> ┃  ${p}rps <r|p|s> ─ Rock Paper Scissors
+> ┃  ${p}ship <n1> <n2> ─ Compatibility
+> ┃
+> ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭━━━ ❰ 🔍 S E A R C H ❱ ━━━━━━
-┃
-┃  ${p}weather <city> ─ Weather
-┃  ${p}wiki <query> ──── Wikipedia
-┃  ${p}define <word> ─── Dictionary
-┃  ${p}shorten <url> ─── URL shortener
-┃  ${p}time ─────────── Current time
-┃  ${p}uptime ───────── Bot uptime
-┃  ${p}repo ─────────── GitHub repo
-┃  ${p}jid ──────────── Chat JID
-┃  ${p}userid ────────── User ID
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+> ╭━━━ ❰ 🔍 S E A R C H ❱ ━━━━━━
+> ┃
+> ┃  ${p}weather <city> ─ Weather
+> ┃  ${p}wiki <query> ──── Wikipedia
+> ┃  ${p}define <word> ─── Dictionary
+> ┃  ${p}shorten <url> ─── URL shortener
+> ┃  ${p}time ─────────── Current time
+> ┃  ${p}uptime ───────── Bot uptime
+> ┃  ${p}repo ─────────── GitHub repo
+> ┃  ${p}jid ──────────── Chat JID
+> ┃  ${p}userid ────────── User ID
+> ┃
+> ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-╭━━━ ❰ ⚙️ S E T T I N G S ❱ ━━━
-┃
-┃  ${p}alwaysonline on/off
-┃  ${p}autoread on/off
-┃  ${p}autoviewstatus on/off
-┃  ${p}anticall on/off
-┃  ${p}autofaketyping all on/off
-┃  ${p}autofakerecording all on/off
-┃  ${p}chatbot on/off ─ AI in DMs
-┃  ${p}setpp ──────── Set profile pic
-┃  ${p}setbio ─────── Set bio
-┃  ${p}setname ─────── Set display name
-┃  ${p}setprefix ───── Set prefix
-┃  ${p}setmenuimage ── Set menu image
-┃  ${p}setmenuvideo ── Set menu video
-┃  ${p}clearmenuvideo ─ Clear video
-┃  ${p}setstickerpackname <name>
-┃  ${p}setstickerauthor <name>
-┃  ${p}setwatermark <text>
-┃  ${p}block/unblock <number>
-┃  ${p}pair <number> ─ Pair for friend
-┃
-╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+> ╭━━━ ❰ ⚙️ S E T T I N G S ❱ ━━━
+> ┃
+> ┃  ${p}alwaysonline on/off
+> ┃  ${p}autoread on/off
+> ┃  ${p}autoviewstatus on/off
+> ┃  ${p}anticall on/off
+> ┃  ${p}autofaketyping all on/off
+> ┃  ${p}autofakerecording all on/off
+> ┃  ${p}chatbot on/off ─ AI in DMs
+> ┃  ${p}setpp ──────── Set profile pic
+> ┃  ${p}setbio ─────── Set bio
+> ┃  ${p}setname ─────── Set display name
+> ┃  ${p}setprefix ───── Set prefix
+> ┃  ${p}setmenuimage ── Set menu image
+> ┃  ${p}setmenuvideo ── Set menu video
+> ┃  ${p}clearmenuvideo ─ Clear video
+> ┃  ${p}setstickerpackname <name>
+> ┃  ${p}setstickerauthor <name>
+> ┃  ${p}setwatermark <text>
+> ┃  ${p}block/unblock <number>
+> ┃  ${p}pair <number> ─ Pair for friend
+> ┃
+> ╰━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 > S N U G G L E  X · C R E A T E D  B Y  Y O B B Y  K I N G
 > Instagram: @yobby_mking
