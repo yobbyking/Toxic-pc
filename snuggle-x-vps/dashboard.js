@@ -50,6 +50,30 @@ app.post('/api/login', (req, res) => {
   return res.status(401).json({ error: 'Wrong password' });
 });
 
+// === Session store (for short session IDs from the pairing site) ===
+// In-memory map: shortId → gzipped session (base64)
+// Sessions auto-expire after 60 minutes
+const sessionStore = new Map();
+
+function generateShortId() {
+  return crypto.randomBytes(6).toString('hex'); // 12 hex chars
+}
+
+// === Store a session (called by the pairing site) ===
+app.post('/api/session/store', auth, (req, res) => {
+  const { session } = req.body;
+  if (!session) return res.status(400).json({ error: 'Missing session data' });
+  const shortId = generateShortId();
+  sessionStore.set(shortId, session);
+  // Auto-expire after 60 minutes
+  setTimeout(() => {
+    sessionStore.delete(shortId);
+    console.log(`[STORE] Session ${shortId} expired`);
+  }, 60 * 60 * 1000);
+  console.log(`[STORE] Session stored with ID: ${shortId} (${(session.length / 1024).toFixed(1)} KB)`);
+  res.json({ shortId });
+});
+
 // === List bots ===
 app.get('/api/bots', auth, (req, res) => {
   const list = Array.from(bots.values()).map(b => ({
@@ -70,26 +94,21 @@ app.post('/api/deploy', auth, async (req, res) => {
 
   // === Check if it's a short ID (12 hex chars), a URL, or base64 (old format) ===
   if (/^[a-f0-9]{12}$/.test(b64)) {
-    // New short format: fetch from the pairing site
-    const PAIRING_SITE = process.env.PAIRING_SITE_URL || 'https://snuggle-x-pair.onrender.com';
-    const fetchUrl = `${PAIRING_SITE}/session/${b64}`;
-    console.log(`[DEPLOY] Fetching session from: ${fetchUrl}`);
+    // Short format: look up in the local VPS session store
+    console.log(`[DEPLOY] Looking up short session ID: ${b64}`);
+    const storedB64 = sessionStore.get(b64);
+    if (!storedB64) {
+      return res.status(400).json({ error: 'Session not found or expired. Please re-pair to get a new session ID.' });
+    }
     try {
-      const https = require('https');
-      const gzipped = await new Promise((resolve, reject) => {
-        https.get(fetchUrl, { timeout: 30000 }, (resp) => {
-          if (resp.statusCode !== 200) return reject(new Error(`HTTP ${resp.statusCode}`));
-          const chunks = [];
-          resp.on('data', (c) => chunks.push(c));
-          resp.on('end', () => resolve(Buffer.concat(chunks)));
-          resp.on('error', reject);
-        }).on('error', reject);
-      });
-      console.log(`[DEPLOY] Downloaded ${gzipped.length} bytes`);
+      const gzipped = Buffer.from(storedB64, 'base64');
       const json = zlib.gunzipSync(gzipped).toString('utf-8');
       sessionFiles = JSON.parse(json);
+      // Remove from store after successful decode (one-time use)
+      sessionStore.delete(b64);
+      console.log(`[DEPLOY] Session ${b64} decoded successfully (${gzipped.length} bytes)`);
     } catch (e) {
-      return res.status(400).json({ error: `Failed to fetch session: ${e.message}` });
+      return res.status(400).json({ error: `Failed to decode session: ${e.message}` });
     }
   } else if (b64.startsWith('http')) {
     // URL format: fetch the gzipped session from the URL
