@@ -131,7 +131,7 @@ app.post('/api/deploy', auth, async (req, res) => {
 
     // If not found locally, try fetching from the Render pairing site
     if (!storedB64) {
-      const PAIRING_URL = process.env.PAIRING_URL || 'https://snuggle-x-pair.onrender.com';
+      const PAIRING_URL = process.env.PAIRING_URL || 'https://pair-snugglex.onrender.com';
       console.log(`[DEPLOY] Not found locally, trying pairing site: ${PAIRING_URL}/api/session/${b64}`);
       try {
         const https = require('https');

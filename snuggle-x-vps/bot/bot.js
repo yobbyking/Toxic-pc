@@ -200,11 +200,11 @@ async function start() {
       const cmd = strippedRaw.toLowerCase().split(/\s+/)[0];
       console.log(`  → parsed cmd: "${cmd}" from raw: "${raw.slice(0, 50)}"`);
       if (cmd === '.menu' || cmd === '.m' || cmd === '!menu' || cmd === '/menu' || lower === 'menu') {
-        await sendMenu(sender, m, pushName);
+        await sendMenu(sock, sender, m, pushName);
         return;
       }
       if (cmd === '.all' || cmd === '!all' || cmd === '/all' || lower === 'all') {
-        await sendAllMenu(sender, m);
+        await sendAllMenu(sock, sender, m);
         return;
       }
 
@@ -296,7 +296,8 @@ async function start() {
 // ============================================================
 // === MENU with vCard contact card ===
 // ============================================================
-async function sendMenu(sender, m, pushName) {
+// sock is passed as a parameter so this function has access to it
+async function sendMenu(sock, sender, m, pushName) {
   const text = buildMenu(pushName);
   // Send vCard contact card first (shows in chat as a tappable contact)
   const vcard = 'BEGIN:VCARD\n'
@@ -321,7 +322,7 @@ async function sendMenu(sender, m, pushName) {
   await sock.sendMessage(sender, { text }, { quoted: m });
 }
 
-async function sendAllMenu(sender, m) {
+async function sendAllMenu(sock, sender, m) {
   await sock.sendMessage(sender, { text: buildAllMenu() }, { quoted: m });
 }
 
