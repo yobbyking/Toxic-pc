@@ -1161,6 +1161,18 @@ _${target.split('@')[0]}_`,
     } catch (e) { console.error('[messages.upsert error]', e.message); }
   });
 
+  // === Anti-call handler ===
+  sock.ev.on('call', async (calls) => {
+    try {
+      const s = getSettings();
+      if (!s.anticall) return;
+      for (const call of calls) {
+        await sock.rejectCall(call.id, call.from);
+        console.log('[ANTICALL] Rejected call from ' + call.from);
+      }
+    } catch (e) { console.log('[ANTICALL] error:', e.message); }
+  });
+
   // === Anti-delete handler — send deleted messages to owner DM ===
   sock.ev.on('messages.update', async (updates) => {
     try {
@@ -1354,7 +1366,7 @@ function buildMenu(pushName) {
   const prefix = getPrefix();
   const speed = (process.hrtime()[1] / 1e6).toFixed(4);
   const version = '1.8.5';
-  const pluginCount = 45;
+  const pluginCount = 70;
   const host = 'Railway VPS';
   return `┏▣ ◈ *\`®•SNUGGLE •X\`* ◈
 ┃ *ᴏᴡɴᴇʀ* : ${ownerName}
