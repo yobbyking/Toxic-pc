@@ -866,26 +866,28 @@ async function handleUrlCommand(sock, chatId, m, msg) {
     else if (qm.documentMessage) { mime = qm.documentMessage.mimetype || 'application/octet-stream'; ext = qm.documentMessage.fileName?.split('.').pop() || 'bin'; }
     else if (qm.stickerMessage) { mime = qm.stickerMessage.mimetype || 'image/webp'; ext = 'webp'; }
 
-    // Upload to catbox.moe (permanent, no expiry, up to 200MB)
+    // Upload to gofile.io (free, permanent, no expiry, up to unlimited size)
     const FormData = require('form-data');
     const axios = require('axios');
+    // 1. Get a server
+    const serverRes = await axios.get('https://api.gofile.io/servers', { timeout: 10000 });
+    const server = serverRes.data.data.servers[0].name;
+    // 2. Upload to that server
     const form = new FormData();
-    form.append('reqtype', 'fileupload');
-    form.append('fileToUpload', buffer, `upload.${ext}`);
-    const upRes = await axios.post('https://catbox.moe/user/api.php', form, {
+    form.append('file', buffer, `upload.${ext}`);
+    const upRes = await axios.post(`https://${server}.gofile.io/contents/uploadfile`, form, {
       headers: form.getHeaders(),
       maxContentLength: Infinity,
       maxBodyLength: Infinity,
       timeout: 120000,
     });
-    // catbox returns the URL as plain text (e.g. https://files.catbox.moe/xxxx.png)
-    if (upRes.data && upRes.data.startsWith('https://')) {
-      const directUrl = upRes.data.trim();
+    if (upRes.data?.status === 'ok' && upRes.data?.data?.downloadPage) {
+      const directUrl = upRes.data.data.downloadPage; // e.g. https://gofile.io/d/NijtPcO6
       await sock.sendMessage(chatId, {
         text: `✅ *Media uploaded!*\n\n🔗 *URL:*\n${directUrl}\n\n_Size: ${(buffer.length / 1024).toFixed(1)} KB_\n_Type: ${mime}_\n_Permanent (no expiry)_`,
       }, { quoted: m });
     } else {
-      throw new Error('Upload failed: ' + (upRes.data || 'No URL returned'));
+      throw new Error('Upload failed: ' + JSON.stringify(upRes.data));
     }
   } catch (e) { await sock.sendMessage(chatId, { text: `❌ Failed: ${e.message}` }, { quoted: m }); }
 }
