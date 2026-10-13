@@ -51,12 +51,46 @@ app.post('/api/login', (req, res) => {
 });
 
 // === Session store (for short session IDs from the pairing site) ===
-// In-memory map: shortId → gzipped session (base64)
+// Persisted to disk so sessions survive dashboard restarts (pm2 restart, crash, etc.)
 // Sessions auto-expire after 60 minutes
-const sessionStore = new Map();
+const SESSION_STORE_DIR = path.join(__dirname, 'session-store');
+if (!fs.existsSync(SESSION_STORE_DIR)) fs.mkdirSync(SESSION_STORE_DIR, { recursive: true });
 
 function generateShortId() {
   return crypto.randomBytes(6).toString('hex'); // 12 hex chars
+}
+
+function storeSession(shortId, session) {
+  const filePath = path.join(SESSION_STORE_DIR, shortId + '.json');
+  const data = {
+    session,
+    createdAt: Date.now(),
+    expiresAt: Date.now() + 60 * 60 * 1000, // 60 minutes
+  };
+  fs.writeFileSync(filePath, JSON.stringify(data));
+  // Schedule deletion
+  setTimeout(() => {
+    try { fs.unlinkSync(filePath); } catch {}
+    console.log(`[STORE] Session ${shortId} expired`);
+  }, 60 * 60 * 1000);
+}
+
+function getSession(shortId) {
+  const filePath = path.join(SESSION_STORE_DIR, shortId + '.json');
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    if (Date.now() > data.expiresAt) {
+      fs.unlinkSync(filePath);
+      return null;
+    }
+    return data.session;
+  } catch { return null; }
+}
+
+function deleteSession(shortId) {
+  const filePath = path.join(SESSION_STORE_DIR, shortId + '.json');
+  try { fs.unlinkSync(filePath); } catch {}
 }
 
 // === Store a session (called by the pairing site) ===
@@ -64,13 +98,8 @@ app.post('/api/session/store', auth, (req, res) => {
   const { session } = req.body;
   if (!session) return res.status(400).json({ error: 'Missing session data' });
   const shortId = generateShortId();
-  sessionStore.set(shortId, session);
-  // Auto-expire after 60 minutes
-  setTimeout(() => {
-    sessionStore.delete(shortId);
-    console.log(`[STORE] Session ${shortId} expired`);
-  }, 60 * 60 * 1000);
-  console.log(`[STORE] Session stored with ID: ${shortId} (${(session.length / 1024).toFixed(1)} KB)`);
+  storeSession(shortId, session);
+  console.log(`[STORE] Session stored with ID: ${shortId} (${(session.length / 1024).toFixed(1)} KB) — persisted to disk`);
   res.json({ shortId });
 });
 
@@ -94,9 +123,9 @@ app.post('/api/deploy', auth, async (req, res) => {
 
   // === Check if it's a short ID (12 hex chars), a URL, or base64 (old format) ===
   if (/^[a-f0-9]{12}$/.test(b64)) {
-    // Short format: look up in the local VPS session store
+    // Short format: look up in the disk-persisted session store
     console.log(`[DEPLOY] Looking up short session ID: ${b64}`);
-    const storedB64 = sessionStore.get(b64);
+    const storedB64 = getSession(b64);
     if (!storedB64) {
       return res.status(400).json({ error: 'Session not found or expired. Please re-pair to get a new session ID.' });
     }
@@ -104,8 +133,7 @@ app.post('/api/deploy', auth, async (req, res) => {
       const gzipped = Buffer.from(storedB64, 'base64');
       const json = zlib.gunzipSync(gzipped).toString('utf-8');
       sessionFiles = JSON.parse(json);
-      // Remove from store after successful decode (one-time use)
-      sessionStore.delete(b64);
+      deleteSession(b64);
       console.log(`[DEPLOY] Session ${b64} decoded successfully (${gzipped.length} bytes)`);
     } catch (e) {
       return res.status(400).json({ error: `Failed to decode session: ${e.message}` });
